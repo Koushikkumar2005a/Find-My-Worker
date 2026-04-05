@@ -12,6 +12,13 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "fallback_dev_secret")
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 
+@app.context_processor
+def inject_supabase_creds():
+    return {
+        'supabase_url': os.getenv("SUPABASE_URL"),
+        'supabase_key': os.getenv("SUPABASE_KEY")
+    }
+
 # Initialize Supabase
 supabase_url = os.getenv("SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_KEY")

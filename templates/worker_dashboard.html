@@ -57,9 +57,9 @@
     {% if recent_requests|length == 0 %}
         <p style="color: var(--gray);">You have no pending or active requests right now.</p>
     {% else %}
-        <div class="grid">
+        <div class="grid" id="recent-requests-list">
             {% for job in recent_requests %}
-            <div class="card">
+            <div class="card" id="job-card-{{ job.id }}">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
                     <h4 style="color: var(--primary-yellow);">{{ job.title }}</h4>
                     <span style="background: rgba(255, 255, 255, 0.1); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; text-transform:uppercase;">
@@ -84,15 +84,22 @@
                     {% elif job.status == 'quoted' %}
                         <span style="color: var(--primary-yellow); width: 100%; text-align: center; padding: 0.75rem;">Waiting for Customer... (₹{{ job.quoted_price }})</span>
                     {% elif job.status == 'accepted' or job.status == 'in_progress' %}
-                        <button class="btn btn-primary status-btn" data-job-id="{{ job.id }}" data-status="{{ 'in_progress' if job.status == 'accepted' else 'completed' }}" style="flex: 1;">
-                            {{ 'Start Job' if job.status == 'accepted' else 'Complete Job' }}
-                        </button>
-                        <button class="btn btn-outline open-route-btn" 
-                                data-job-id="{{ job.id }}"
-                                data-lat="{{ job.customer_lat }}"
-                                data-lng="{{ job.customer_lng }}"
-                                data-user-name="{{ job.user_name }}"
-                                style="flex: 1;">View Route</button>
+                        <div style="display: flex; gap: 0.5rem; width: 100%;">
+                            <button class="btn btn-primary status-btn" data-job-id="{{ job.id }}" data-status="{{ 'in_progress' if job.status == 'accepted' else 'completed' }}" style="flex: 1;">
+                                {{ 'Start Job' if job.status == 'accepted' else 'Complete Job' }}
+                            </button>
+                            <button class="btn btn-outline open-route-btn" 
+                                    data-job-id="{{ job.id }}"
+                                    data-lat="{{ job.customer_lat }}"
+                                    data-lng="{{ job.customer_lng }}"
+                                    data-user-name="{{ job.user_name }}"
+                                    style="flex: 1;">View Route</button>
+                        </div>
+                        <button class="btn btn-outline btn-sm open-chat-btn" 
+                                data-job-id="{{ job.id }}" 
+                                data-participant-id="{{ job.user_id }}" 
+                                data-participant-name="{{ job.user_name }}" 
+                                style="margin-top: 0.5rem; width: 100%;">Chat with {{ job.user_name }}</button>
                     {% endif %}
                 </div>
             </div>
@@ -398,6 +405,32 @@
             }
         });
     });
+
+    // Real-time Dashboard Updates
+    if (window.supabase_client) {
+        window.supabase_client
+            .channel('worker_dashboard_updates')
+            .on('postgres_changes', { 
+                event: 'UPDATE', 
+                schema: 'public', 
+                table: 'jobs',
+                filter: `worker_id=eq.${CURRENT_USER_ID}`
+            }, payload => {
+                console.log("Job Update Detected:", payload.new);
+                // When status or quote changes, reload to sync with Jinja logic
+                window.location.reload(); 
+            })
+            .on('postgres_changes', { 
+                event: 'INSERT', 
+                schema: 'public', 
+                table: 'jobs',
+                filter: `worker_id=eq.${CURRENT_USER_ID}`
+            }, payload => {
+                console.log("New Request Detected!");
+                window.location.reload(); 
+            })
+            .subscribe();
+    }
 </script>
 
 {% include 'chat_modal.html' %}

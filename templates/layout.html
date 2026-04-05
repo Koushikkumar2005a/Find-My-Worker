@@ -6,6 +6,7 @@
     <title>{% block title %}Find My Worker{% endblock %}</title>
     <meta name="description" content="Find the best professional workers near you.">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
 </head>
 <body>
@@ -78,5 +79,12 @@
             };
         }
     </script>
+    
+    {% if supabase_url and supabase_key %}
+    <script>
+        // Global Supabase initialization
+        window.supabase_client = supabase.createClient("{{ supabase_url }}", "{{ supabase_key }}");
+    </script>
+    {% endif %}
 </body>
 </html>

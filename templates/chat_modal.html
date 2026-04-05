@@ -21,7 +21,7 @@
     let currentChatJobId = null;
     let currentChatReceiverId = null;
     let receiverPublicKeyJwK = null;
-    let fetchMessagesInterval = null;
+    let supabaseSubscription = null;
     let keyPair = null;
 
     window.addEventListener('DOMContentLoaded', async () => {
@@ -57,18 +57,53 @@
         const data = await res.json();
         if (data.success) {
             receiverPublicKeyJwK = JSON.parse(data.public_key);
-            fetchMessages();
-            fetchMessagesInterval = setInterval(fetchMessages, 5000);
+            await fetchMessages();
+            
+            // Realtime Subscription
+            if (window.supabase_client) {
+                supabaseSubscription = window.supabase_client
+                    .channel(`chat_${jobId}`)
+                    .on('postgres_changes', { 
+                        event: 'INSERT', 
+                        schema: 'public', 
+                        table: 'messages',
+                        filter: `job_id=eq.${jobId}`
+                    }, payload => {
+                        handleNewMessage(payload.new);
+                    })
+                    .subscribe();
+            }
         } else {
             document.getElementById('chat-messages-container').innerHTML = `<p style="color:var(--gray); text-align:center;">User hasn't registered a public key yet.</p>`;
         }
+    }
+
+    async function handleNewMessage(msg) {
+        let decryptedText = "";
+        try {
+            if (msg.sender_id == CURRENT_USER_ID) {
+                decryptedText = await ChatCrypto.decryptData(msg.encrypted_content_for_sender, keyPair.privateKey);
+            } else {
+                decryptedText = await ChatCrypto.decryptData(msg.encrypted_content_for_receiver, keyPair.privateKey);
+            }
+            
+            const container = document.getElementById('chat-messages-container');
+            const div = document.createElement('div');
+            div.className = `chat-message ${msg.sender_id == CURRENT_USER_ID ? 'sent' : 'received'}`;
+            div.innerText = decryptedText;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        } catch(e) { console.error("Decryption failed for realtime message", e); }
     }
 
     function closeChat() {
         document.getElementById('chat-modal').classList.remove('active');
         currentChatJobId = null;
         currentChatReceiverId = null;
-        if (fetchMessagesInterval) clearInterval(fetchMessagesInterval);
+        if (supabaseSubscription) {
+            window.supabase_client.removeChannel(supabaseSubscription);
+            supabaseSubscription = null;
+        }
     }
 
     async function fetchMessages() {
@@ -117,7 +152,7 @@
                     enc_for_sender: encForSender
                 })
             });
-            await fetchMessages();
+            // fetchMessages(); // No longer needed as Realtime will push the message back to us
         } catch(e) {
             console.error(e);
             alert("Failed to send encrypted message. Message might be too long.");
