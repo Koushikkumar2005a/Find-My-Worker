@@ -80,6 +80,7 @@ class ChatCrypto {
     static async setupKeys(userId) {
         const privKeyKey = `chat_priv_${userId}`;
         const pubKeyKey = `chat_pub_${userId}`;
+        const syncKey = `chat_synced_${userId}`;
         
         let privJWK = localStorage.getItem(privKeyKey);
         let pubJWK = localStorage.getItem(pubKeyKey);
@@ -92,18 +93,24 @@ class ChatCrypto {
             
             localStorage.setItem(privKeyKey, privJWK);
             localStorage.setItem(pubKeyKey, pubJWK);
+            sessionStorage.removeItem(syncKey); // Force re-sync
+        }
 
-            // Send public key to server
+        // Always check if we need to sync this session to ensure server has current public key
+        if (!sessionStorage.getItem(syncKey)) {
+            console.log("Syncing E2EE public key with server...");
             try {
                 await fetch('/api/keys/update', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ public_key: pubJWK })
                 });
+                sessionStorage.setItem(syncKey, 'true');
             } catch (e) {
-                console.error("Failed to upload public key to server", e);
+                console.error("Failed to sync key", e);
             }
         }
+
         return {
             privateKey: JSON.parse(privJWK),
             publicKey: JSON.parse(pubJWK)

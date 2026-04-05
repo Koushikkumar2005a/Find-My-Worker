@@ -23,6 +23,7 @@
     let receiverPublicKeyJwK = null;
     let supabaseSubscription = null;
     let keyPair = null;
+    let displayedMessageIds = new Set();
 
     window.addEventListener('DOMContentLoaded', async () => {
         keyPair = await ChatCrypto.setupKeys(CURRENT_USER_ID);
@@ -46,10 +47,12 @@
     });
 
     async function openChat(jobId, receiverId, title) {
+        closeChat(); // Clean start
         currentChatJobId = jobId;
         currentChatReceiverId = receiverId;
-        document.getElementById('chat-title').innerText = `Chat with ${title}`;
+        document.getElementById('chat-title').innerHTML = `Chat with ${title} <span id="chat-status" style="font-size:0.7rem; color:var(--gray); margin-left:10px;">Connecting...</span>`;
         document.getElementById('chat-messages-container').innerHTML = '';
+        displayedMessageIds.clear();
         document.getElementById('chat-modal').classList.add('active');
         
         // Fetch Receiver's Public Key
@@ -71,7 +74,15 @@
                     }, payload => {
                         handleNewMessage(payload.new);
                     })
-                    .subscribe();
+                    .subscribe((status) => {
+                        const statusEl = document.getElementById('chat-status');
+                        if (status === 'SUBSCRIBED') {
+                            if (statusEl) {
+                                statusEl.innerText = "Realtime Active";
+                                statusEl.style.color = "var(--primary-yellow)";
+                            }
+                        }
+                    });
             }
         } else {
             document.getElementById('chat-messages-container').innerHTML = `<p style="color:var(--gray); text-align:center;">User hasn't registered a public key yet.</p>`;
@@ -79,6 +90,9 @@
     }
 
     async function handleNewMessage(msg) {
+        if (!msg || displayedMessageIds.has(msg.id)) return;
+        displayedMessageIds.add(msg.id);
+        
         let decryptedText = "";
         try {
             if (msg.sender_id == CURRENT_USER_ID) {
@@ -114,6 +128,9 @@
             const container = document.getElementById('chat-messages-container');
             container.innerHTML = '';
             for (let msg of data.messages) {
+                if (displayedMessageIds.has(msg.id)) continue;
+                displayedMessageIds.add(msg.id);
+
                 let decryptedText = "";
                 if (msg.sender_id == CURRENT_USER_ID) {
                     decryptedText = await ChatCrypto.decryptData(msg.encrypted_content_for_sender, keyPair.privateKey);
