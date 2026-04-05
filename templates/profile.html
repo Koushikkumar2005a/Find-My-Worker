@@ -130,6 +130,40 @@
             </div>
             {% endif %}
         </div>
+
+        <!-- NEW: Edit Profile Section -->
+        <div id="edit-mode" style="display: none;">
+            <div class="profile-card" style="padding: 2.5rem; background: var(--glass-bg); backdrop-filter: blur(40px); border: 2px solid rgba(255,193,7,0.1);">
+                <h2 style="color: var(--primary-yellow); margin-bottom: 2rem;">Update Profile Information</h2>
+                <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                    <div class="form-group">
+                        <label style="color: var(--gray); margin-bottom: 0.5rem; display: block;">Full Name</label>
+                        <input type="text" id="edit-name" value="{{ profile.name }}" class="form-control" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 12px; width: 100%; border-radius: 8px;">
+                    </div>
+                    <div class="form-group">
+                        <label style="color: var(--gray); margin-bottom: 0.5rem; display: block;">Phone Number</label>
+                        <input type="text" id="edit-phone" value="{{ profile.phone_number if profile.phone_number else '' }}" class="form-control" placeholder="Enter phone number" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 12px; width: 100%; border-radius: 8px;">
+                    </div>
+                    {% if profile.role == 'worker' %}
+                    <div class="form-group">
+                        <label style="color: var(--gray); margin-bottom: 0.5rem; display: block;">Professional Skills</label>
+                        <input type="text" id="edit-skills" value="{{ profile.skills if profile.skills else '' }}" class="form-control" placeholder="e.g., Electrician, Carpenter" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 12px; width: 100%; border-radius: 8px;">
+                    </div>
+                    {% endif %}
+                    <div class="form-group">
+                        <label style="color: var(--gray); margin-bottom: 0.5rem; display: block;">Update Profile Picture</label>
+                        <input type="file" id="edit-image" class="form-control" accept="image/*" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 12px; width: 100%; border-radius: 8px;">
+                        <p style="font-size: 0.8rem; color: var(--gray); margin-top: 8px;">Leave empty to keep your current picture.</p>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                        <button id="save-btn" class="btn btn-primary" style="flex: 1;">Save Changes</button>
+                        <button id="cancel-btn" class="btn btn-outline" style="flex: 1; border-color: #ff4444; color: #ff4444;">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 {% if is_owner %}
