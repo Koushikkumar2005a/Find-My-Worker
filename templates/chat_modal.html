@@ -50,42 +50,54 @@
         closeChat(); // Clean start
         currentChatJobId = jobId;
         currentChatReceiverId = receiverId;
+        
+        // Reset UI state
+        document.getElementById('send-chat-btn').disabled = false;
+        document.getElementById('chat-input').disabled = false;
+        document.getElementById('chat-input').placeholder = "Type a message (E2E Encrypted)...";
         document.getElementById('chat-title').innerHTML = `Chat with ${title} <span id="chat-status" style="font-size:0.7rem; color:var(--gray); margin-left:10px;">Connecting...</span>`;
         document.getElementById('chat-messages-container').innerHTML = '';
         displayedMessageIds.clear();
         document.getElementById('chat-modal').classList.add('active');
         
-        // Fetch Receiver's Public Key
+        // Always fetch previous messages and start realtime
+        await fetchMessages();
+        
+        if (window.supabase_client) {
+            supabaseSubscription = window.supabase_client
+                .channel(`chat_${jobId}`)
+                .on('postgres_changes', { 
+                    event: 'INSERT', 
+                    schema: 'public', 
+                    table: 'messages',
+                    filter: `job_id=eq.${jobId}`
+                }, payload => {
+                    handleNewMessage(payload.new);
+                })
+                .subscribe((status) => {
+                    const statusEl = document.getElementById('chat-status');
+                    if (status === 'SUBSCRIBED') {
+                        if (statusEl) {
+                            statusEl.innerText = "Realtime Active";
+                            statusEl.style.color = "var(--primary-yellow)";
+                        }
+                    }
+                });
+        }
+
+        // Fetch Receiver's Public Key for sending new messages
         const res = await fetch(`/api/keys/${receiverId}`);
         const data = await res.json();
         if (data.success) {
             receiverPublicKeyJwK = JSON.parse(data.public_key);
-            await fetchMessages();
-            
-            // Realtime Subscription
-            if (window.supabase_client) {
-                supabaseSubscription = window.supabase_client
-                    .channel(`chat_${jobId}`)
-                    .on('postgres_changes', { 
-                        event: 'INSERT', 
-                        schema: 'public', 
-                        table: 'messages',
-                        filter: `job_id=eq.${jobId}`
-                    }, payload => {
-                        handleNewMessage(payload.new);
-                    })
-                    .subscribe((status) => {
-                        const statusEl = document.getElementById('chat-status');
-                        if (status === 'SUBSCRIBED') {
-                            if (statusEl) {
-                                statusEl.innerText = "Realtime Active";
-                                statusEl.style.color = "var(--primary-yellow)";
-                            }
-                        }
-                    });
-            }
         } else {
-            document.getElementById('chat-messages-container').innerHTML = `<p style="color:var(--gray); text-align:center;">User hasn't registered a public key yet.</p>`;
+            const statusEl = document.getElementById('chat-status');
+            if (statusEl) {
+                statusEl.innerText = " (Reply Unavailable: User key missing)";
+                statusEl.style.color = "#ff4444";
+            }
+            document.getElementById('send-chat-btn').disabled = true;
+            document.getElementById('chat-input').placeholder = "You can't reply until the user logs in.";
         }
     }
 
