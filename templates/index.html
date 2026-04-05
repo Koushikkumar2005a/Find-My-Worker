@@ -1,0 +1,19 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<main class="hero">
+    <div class="hero-bg"></div>
+    <div class="hero-overlay"></div>
+    
+    <div class="hero-content">
+        <h1 class="hero-title">Hire Top Professionals <span>Instantly.</span></h1>
+        <p class="hero-subtitle">Connect with verified experts near you for any job, big or small. Quality work, guaranteed safety.</p>
+        
+        <div class="hero-actions">
+            <!-- As per requirements, these buttons should lead to Login/Register where a role is selected -->
+            <a href="{{ url_for('auth', action='login') }}" class="btn btn-outline" style="padding: 1rem 2rem; font-size: 1.1rem;">Login to Account</a>
+            <a href="{{ url_for('auth', action='register') }}" class="btn btn-primary" style="padding: 1rem 2rem; font-size: 1.1rem;">Get Started Now</a>
+        </div>
+    </div>
+</main>
+{% endblock %}

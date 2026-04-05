@@ -1,0 +1,197 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="profile-container" style="max-width: 1000px; padding: 2rem;">
+    <!-- Profile Header Card -->
+    <div class="profile-card" style="margin-bottom: 2rem; padding: 2.5rem; background: var(--glass-bg); backdrop-filter: blur(20px);">
+        <div style="display: flex; gap: 2.5rem; align-items: center; flex-wrap: wrap;">
+            <div style="position: relative;">
+                <div style="width: 140px; height: 140px; border-radius: 50%; background: #222; overflow: hidden; border: 4px solid var(--primary-yellow); box-shadow: 0 0 20px rgba(255,193,7,0.2); transition: transform 0.3s ease;">
+                    {% if profile.profile_image %}
+                        <img src="{{ profile.profile_image }}" style="width: 100%; height: 100%; object-fit: cover;" alt="Profile Picture">
+                    {% else %}
+                        <div style="width: 100%; height: 100%; display: flex; align-items:center; justify-content:center; background: #333;">
+                            <span style="font-size: 4rem;">👤</span>
+                        </div>
+                    {% endif %}
+                </div>
+                {% if profile.is_online and profile.role == 'worker' %}
+                    <div style="position: absolute; bottom: 8px; right: 8px; width: 24px; height: 24px; background: #00C851; border: 4px solid var(--dark-charcoal); border-radius: 50%;" title="Online"></div>
+                {% endif %}
+            </div>
+            
+            <div style="flex: 1; min-width: 250px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <h1 id="display-name" style="margin: 0; color: var(--white); font-size: 2.8rem; letter-spacing: -1px;">{{ profile.name }}</h1>
+                        <p style="margin: 0.4rem 0; color: var(--primary-yellow); font-size: 1.1rem; font-weight: 600; text-transform: uppercase;">
+                            {{ profile.role }} {% if profile.skills %}• {{ profile.skills }}{% endif %}
+                        </p>
+                    </div>
+                    {% if is_owner %}
+                    <button id="edit-btn" class="btn btn-outline btn-sm" style="border-radius: 30px; padding: 8px 20px;">Edit Profile</button>
+                    {% endif %}
+                </div>
+                
+                <div style="margin-top: 1.5rem; display: flex; gap: 1.5rem; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 8px; color: var(--gray); font-size: 0.95rem;">
+                        <span>📅</span> Joined {{ profile.created_at[:10] if profile.created_at else 'Recently' }}
+                    </div>
+                    {% if profile.role == 'worker' %}
+                    <div style="display: flex; align-items: center; gap: 8px; color: var(--primary-yellow); font-size: 1rem; font-weight: bold;">
+                        <span>⭐</span> {{ "%.1f"|format(profile.rating or 0.0) }} ({{ reviews|length }} reviews)
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content Sections -->
+    <div id="main-content">
+        <div id="view-mode">
+            <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem;">
+                <!-- Contact Card -->
+                <div class="profile-card" style="padding: 2rem;">
+                    <h3 style="margin-bottom: 2rem; color: var(--primary-yellow); font-size: 1.25rem; display: flex; align-items: center; gap: 10px;">
+                        <span>📧</span> Contact Details
+                    </h3>
+                    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                        <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px;">
+                            <span style="display: block; font-size: 0.75rem; color: var(--gray); text-transform: uppercase; margin-bottom: 4px;">Email</span>
+                            <span style="font-weight: 500; font-size: 1.1rem;">{{ profile.email }}</span>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px;">
+                            <span style="display: block; font-size: 0.75rem; color: var(--gray); text-transform: uppercase; margin-bottom: 4px;">Phone</span>
+                            <span id="display-phone" style="font-weight: 500; font-size: 1.1rem;">{{ profile.phone_number if profile.phone_number else 'Not provided' }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Professional Stats (Only for Workers) -->
+                {% if profile.role == 'worker' %}
+                <div class="profile-card" style="padding: 2rem;">
+                    <h3 style="margin-bottom: 2rem; color: var(--primary-yellow); font-size: 1.25rem; display: flex; align-items: center; gap: 10px;">
+                        <span>💼</span> Professional Stats
+                    </h3>
+                    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="card stat-card" style="background: rgba(255,193,7,0.05); border: 1px solid rgba(255,193,7,0.1); margin: 0;">
+                            <span class="stat-label">Rating</span>
+                            <span class="stat-value" style="color: var(--primary-yellow);">⭐ {{ "%.1f"|format(profile.rating or 0.0) }}</span>
+                        </div>
+                        <div class="card stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); margin: 0;">
+                            <span class="stat-label">Status</span>
+                            <span class="stat-value" style="color: {{ '#00C851' if profile.is_online else 'var(--gray)' }}">
+                                {{ 'Active' if profile.is_online else 'Busy' }}
+                            </span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1.5rem; text-align: center; padding: 1rem; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                        <p style="font-size: 0.85rem; color: var(--gray); margin: 0;">Available for bookings in <span style="color: white;">{{ profile.skills }}</span></p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Reviews (Only for Workers) -->
+            {% if profile.role == 'worker' %}
+            <div class="profile-card" style="margin-top: 1.5rem; padding: 2rem;">
+                <h3 style="margin-bottom: 2rem; color: var(--primary-yellow); font-size: 1.25rem;">Recent Reviews & Ratings</h3>
+                {% if reviews|length > 0 %}
+                    <div class="reviews-list" style="display: flex; flex-direction: column; gap: 1.5rem;">
+                    {% for rev in reviews %}
+                        <div style="background: rgba(255,255,255,0.02); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); transition: transform 0.2s ease;">
+                            <div style="display: flex; justify-content: space-between; align-items: start;">
+                                <div>
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <div style="width: 32px; height: 32px; border-radius: 50%; background: #444; display: flex; align-items: center; justify-content: center; font-size: 0.8rem;">👤</div>
+                                        <span style="font-weight: 600; color: var(--white);">{{ rev.user_name }}</span>
+                                    </div>
+                                    <span style="font-size: 0.75rem; color: var(--gray); margin-left: 42px;">{{ rev.created_at[:10] }}</span>
+                                </div>
+                                <div style="color: var(--primary-yellow); font-weight: 800; font-size: 1.1rem; display: flex; align-items: center; gap: 5px;">
+                                    <span>⭐</span> {{ "%.1f"|format(rev.rating) }}
+                                </div>
+                            </div>
+                            {% if rev.description %}
+                                <p style="margin-top: 1rem; margin-left: 42px; color: #ccc; line-height: 1.6; font-style: italic; font-size: 0.95rem;">
+                                    "{{ rev.description }}"
+                                </p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                    </div>
+                {% else %}
+                    <div style="text-align: center; padding: 4rem 2rem;">
+                        <span style="font-size: 3rem; opacity: 0.3;">⭐</span>
+                        <p style="color: var(--gray); margin-top: 1rem;">No reviews yet. Be the first to book and rate!</p>
+                    </div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+</div>
+
+{% if is_owner %}
+<script>
+    const editBtn = document.getElementById('edit-btn');
+    const cancelBtn = document.getElementById('cancel-btn');
+    const viewMode = document.getElementById('view-mode');
+    const editMode = document.getElementById('edit-mode');
+    const saveBtn = document.getElementById('save-btn');
+    
+    const toggleEdit = () => {
+        if (editMode.style.display === 'none') {
+            editMode.style.display = 'block';
+            viewMode.style.display = 'none';
+            editBtn.style.display = 'none';
+        } else {
+            editMode.style.display = 'none';
+            viewMode.style.display = 'block';
+            editBtn.style.display = 'block';
+        }
+    };
+
+    editBtn.addEventListener('click', toggleEdit);
+    cancelBtn?.addEventListener('click', toggleEdit);
+    
+    saveBtn.addEventListener('click', async () => {
+        saveBtn.innerText = "Saving...";
+        saveBtn.disabled = true;
+        
+        const formData = new FormData();
+        formData.append('name', document.getElementById('edit-name').value);
+        formData.append('phone_number', document.getElementById('edit-phone').value);
+        
+        const imageFile = document.getElementById('edit-image').files[0];
+        if(imageFile) {
+            formData.append('profile_image', imageFile);
+        }
+        
+        const skillInput = document.getElementById('edit-skills');
+        if (skillInput) {
+            formData.append('skills', skillInput.value);
+        }
+        
+        try {
+            const response = await fetch('/api/profile/update', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            if(data.success) {
+                window.location.reload();
+            } else {
+                alert("Error updating profile: " + (data.error || "Unknown error"));
+                saveBtn.innerText = "Save Changes";
+                saveBtn.disabled = false;
+            }
+        } catch (e) {
+            alert("Network error.");
+            saveBtn.innerText = "Save Changes";
+            saveBtn.disabled = false;
+        }
+    });
+</script>
+{% endif %}
+{% endblock %}

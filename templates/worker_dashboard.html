@@ -1,0 +1,404 @@
+{% extends "layout.html" %}
+
+{% block sidebar %}
+    <button class="sidebar-btn" onclick="scrollToSection('active-bookings')">
+        <span>📅</span> Active Bookings
+    </button>
+    <button class="sidebar-btn" onclick="scrollToSection('history')">
+        <span>📜</span> History
+    </button>
+{% endblock %}
+
+{% block content %}
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<!-- Leaflet JS & Routing -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <div>
+            <h2 style="margin: 0;">Worker Dashboard</h2>
+            <p style="margin: 0; color: var(--gray);">Manage your service requests and earnings</p>
+        </div>
+    <div class="status-toggle-container">
+        <span id="status-label" class="status-label" data-online="{{ 'true' if worker.is_online else 'false' }}">
+            {{ 'STATUS: ONLINE' if worker.is_online else 'STATUS: OFFLINE' }}
+        </span>
+        <label class="toggle-switch">
+            <input type="checkbox" id="online-toggle" {% if worker.is_online %}checked{% endif %}>
+            <span class="slider round"></span>
+        </label>
+    </div>
+    </div>
+
+    <div class="grid" style="margin-bottom: 3rem;">
+        <div class="card stat-card">
+            <span class="stat-label">Total Earnings</span>
+            <span class="stat-value">₹{{ "%.2f"|format(worker.earnings) }}</span>
+            <span style="color: #00C851; font-size: 0.85rem; margin-top: 0.5rem;">+12% this week</span>
+        </div>
+        <div class="card stat-card">
+            <span class="stat-label">Average Rating</span>
+            <span class="stat-value">⭐ {{ "%.1f"|format(worker.rating) }}</span>
+            <span style="color: var(--gray); font-size: 0.85rem; margin-top: 0.5rem;">Based on {{ total_reviews }} reviews</span>
+        </div>
+        <div class="card stat-card">
+            <span class="stat-label">Active Jobs</span>
+            <span class="stat-value">{{ active_jobs_count }}</span>
+            <span style="color: var(--gray); font-size: 0.85rem; margin-top: 0.5rem;">Currently in progress</span>
+        </div>
+    </div>
+
+    <h3 id="active-bookings" style="margin-bottom: 1.5rem; scroll-margin-top: 100px;">Recent Requests</h3>
+    
+    {% if recent_requests|length == 0 %}
+        <p style="color: var(--gray);">You have no pending or active requests right now.</p>
+    {% else %}
+        <div class="grid">
+            {% for job in recent_requests %}
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+                    <h4 style="color: var(--primary-yellow);">{{ job.title }}</h4>
+                    <span style="background: rgba(255, 255, 255, 0.1); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; text-transform:uppercase;">
+                        {{ job.status }}
+                    </span>
+                </div>
+                <p style="color: var(--gray); font-size: 0.9rem; margin-bottom: 1.5rem;">
+                    Customer: <a href="/profile/{{ job.user_id }}" style="color: var(--primary-yellow); text-decoration: none;">{{ job.user_name }}</a><br>
+                    Phone: <span style="color: white;">{{ job.user_phone }}</span><br>
+                    Date Requested: {{ job.created_at[:10] if job.created_at else 'Unknown' }}
+                </p>
+                <div style="display: flex; gap: 0.5rem;">
+                    {% if job.status == 'pending' %}
+                        <button class="btn btn-primary open-details-btn" 
+                                data-job-id="{{ job.id }}" 
+                                data-desc="{{ job.description }}" 
+                                data-photo="{{ job.photo_url }}"
+                                data-lat="{{ job.customer_lat }}"
+                                data-lng="{{ job.customer_lng }}"
+                                style="flex: 2;">Details & Map</button>
+                        <button class="btn btn-outline status-btn" data-job-id="{{ job.id }}" data-status="declined" style="flex: 1;">Decline</button>
+                    {% elif job.status == 'quoted' %}
+                        <span style="color: var(--primary-yellow); width: 100%; text-align: center; padding: 0.75rem;">Waiting for Customer... (₹{{ job.quoted_price }})</span>
+                    {% elif job.status == 'accepted' or job.status == 'in_progress' %}
+                        <button class="btn btn-primary status-btn" data-job-id="{{ job.id }}" data-status="{{ 'in_progress' if job.status == 'accepted' else 'completed' }}" style="flex: 1;">
+                            {{ 'Start Job' if job.status == 'accepted' else 'Complete Job' }}
+                        </button>
+                        <button class="btn btn-outline open-route-btn" 
+                                data-job-id="{{ job.id }}"
+                                data-lat="{{ job.customer_lat }}"
+                                data-lng="{{ job.customer_lng }}"
+                                data-user-name="{{ job.user_name }}"
+                                style="flex: 1;">View Route</button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <h3 id="history" style="margin-top: 3rem; margin-bottom: 1.5rem; scroll-margin-top: 100px;">Booking History</h3>
+    {% if history_jobs|length == 0 %}
+        <p style="color: var(--gray);">No past jobs found.</p>
+    {% else %}
+        <div class="grid">
+            {% for job in history_jobs %}
+            <div class="card" style="opacity: 0.8; border-color: rgba(255,255,255,0.05);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                    <h4 style="color: var(--gray);">{{ job.title }}</h4>
+                    <span style="font-size: 0.7rem; text-transform: uppercase;">{{ job.status }}</span>
+                </div>
+                <p style="font-size: 0.8rem; color: var(--gray);">
+                    Customer: {{ job.user_name }}<br>
+                    Date: {{ job.created_at[:10] if job.created_at else 'Unknown' }}
+                </p>
+                {% if job.status == 'completed' %}
+                    <p style="color: var(--primary-yellow); font-size: 0.9rem; margin-top: 0.5rem;">Earnings: ₹{{ job.quoted_price }}</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+</div>
+
+<!-- Details Modal (with Pre-quote Map) -->
+<div id="details-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 600px;">
+        <h3>Request Details</h3>
+        <div style="margin-bottom: 1rem;">
+            <p style="color: var(--gray); margin-bottom: 0.25rem;"><strong>Description:</strong></p>
+            <p id="detail-desc"></p>
+        </div>
+        
+        <div id="detail-map-container" style="margin-bottom: 1rem;">
+            <p style="color: var(--gray); margin-bottom: 0.5rem;"><strong>Service Location:</strong></p>
+            <div id="detail-map" style="height: 200px; border-radius: 8px; border: 1px solid var(--glass-border);"></div>
+        </div>
+
+        <div style="margin-bottom: 1.5rem;" id="detail-photo-container">
+            <p style="color: var(--gray); margin-bottom: 0.5rem;"><strong>Photo Attached:</strong></p>
+            <img id="detail-photo" src="" style="max-width: 100%; border-radius: 8px; max-height: 200px; object-fit: contain;" />
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Your Quote Price (₹)</label>
+            <input type="number" id="quote-price" class="form-control" placeholder="Enter amount for the whole job..." />
+        </div>
+        <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+            <button class="btn btn-primary" id="send-quote-btn" style="flex: 1;">Send Quote</button>
+            <button class="btn btn-outline" id="close-details-btn" style="flex: 1;">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Route Modal (Post-acceptance Map) -->
+<div id="route-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 800px; padding: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0;">Route to Customer: <span id="route-customer-name" style="color: var(--primary-yellow);"></span></h3>
+            <button id="close-route-btn" class="btn btn-outline btn-sm">Close</button>
+        </div>
+        <div id="route-map" style="height: 450px; border-radius: 12px; border: 1px solid var(--glass-border);"></div>
+        <div style="margin-top: 1rem; display: flex; gap: 2rem; font-size: 0.9rem; justify-content: center; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px;">
+            <div>🏁 <span style="color: var(--gray);">Destination:</span> Customer</div>
+            <div>👷 <span style="color: var(--gray);">Your Position:</span> Live</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.querySelectorAll('.status-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const jobId = e.target.getAttribute('data-job-id');
+            const nextStatus = e.target.getAttribute('data-status');
+            e.target.innerText = "Updating...";
+            try {
+                const response = await fetch('/api/job/status', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        job_id: jobId,
+                        status: nextStatus
+                    })
+                });
+                const data = await response.json();
+                if(data.success) {
+                    window.location.reload();
+                } else {
+                    alert("Error: " + data.error);
+                    e.target.innerText = "Error";
+                }
+            } catch (err) {
+                alert("Network error."); 
+                e.target.innerText = "Error";
+            }
+        });
+    });
+
+    let currentQuoteJobId = null;
+    let detailMap, detailMarker;
+
+    document.querySelectorAll('.open-details-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const target = e.currentTarget;
+            currentQuoteJobId = target.getAttribute('data-job-id');
+            const desc = target.getAttribute('data-desc') || 'No description provided.';
+            const photo = target.getAttribute('data-photo');
+            const lat = parseFloat(target.getAttribute('data-lat'));
+            const lng = parseFloat(target.getAttribute('data-lng'));
+            
+            document.getElementById('detail-desc').innerText = desc;
+            
+            // Photo handling
+            if(photo && photo !== 'None' && photo !== '') {
+                document.getElementById('detail-photo').src = photo;
+                document.getElementById('detail-photo-container').style.display = 'block';
+            } else {
+                document.getElementById('detail-photo-container').style.display = 'none';
+            }
+            
+            // Map handling
+            document.getElementById('details-modal').classList.add('active');
+            
+            setTimeout(() => {
+                if (!detailMap) {
+                    detailMap = L.map('detail-map').setView([lat || 20, lng || 78], 13);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(detailMap);
+                }
+                if (lat && lng) {
+                    if (detailMarker) detailMarker.setLatLng([lat, lng]);
+                    else detailMarker = L.marker([lat, lng]).addTo(detailMap);
+                    detailMap.setView([lat, lng], 15);
+                }
+                detailMap.invalidateSize();
+            }, 300);
+        });
+    });
+
+    document.getElementById('close-details-btn').addEventListener('click', () => {
+        document.getElementById('details-modal').classList.remove('active');
+    });
+
+    document.getElementById('send-quote-btn').addEventListener('click', async (e) => {
+        const price = document.getElementById('quote-price').value;
+        if(!price || isNaN(price)) {
+            alert("Please enter a valid amount.");
+            return;
+        }
+        e.target.innerText = "Sending...";
+        try {
+            const res = await fetch('/api/job/quote', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({job_id: currentQuoteJobId, price: price})
+            });
+            const data = await res.json();
+            if(data.success) {
+                window.location.reload();
+            } else {
+                alert("Error: " + data.error);
+                e.target.innerText = "Send Quote";
+            }
+        } catch(err) {
+            alert("Network Error");
+            e.target.innerText = "Send Quote";
+        }
+    });
+    // Route Viewing Logic
+    let routeMap, routeControl;
+    const homeIcon = L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/25/25694.png',
+        iconSize: [35, 35], iconAnchor: [17, 35], popupAnchor: [1, -34], className: 'map-marker-icon'
+    });
+    const proIcon = L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/1995/1995471.png',
+        iconSize: [35, 35], iconAnchor: [17, 35], popupAnchor: [1, -34], className: 'map-marker-icon'
+    });
+
+    const openRoute = (targetLat, targetLng, userName) => {
+        document.getElementById('route-customer-name').innerText = userName;
+        document.getElementById('route-modal').classList.add('active');
+
+        setTimeout(() => {
+            if (!routeMap) {
+                routeMap = L.map('route-map').setView([20, 78], 13);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(routeMap);
+            }
+
+            navigator.geolocation.getCurrentPosition((pos) => {
+                const { latitude, longitude } = pos.coords;
+                
+                if (routeControl) {
+                    routeMap.removeControl(routeControl);
+                }
+
+                routeControl = L.Routing.control({
+                    waypoints: [
+                        L.latLng(latitude, longitude),
+                        L.latLng(targetLat, targetLng)
+                    ],
+                    lineOptions: {
+                        styles: [{ color: '#FFD700', weight: 6, opacity: 0.8 }]
+                    },
+                    createMarker: function(i, wp, n) {
+                        return L.marker(wp.latLng, {
+                            icon: i === 0 ? proIcon : homeIcon,
+                            draggable: false
+                        }).bindPopup(i === 0 ? "You (Live)" : "Customer: " + userName);
+                    },
+                    show: false,
+                    addWaypoints: false,
+                    draggableWaypoints: false
+                }).addTo(routeMap);
+
+                // Auto-fit bounds
+                routeControl.on('routesfound', (e) => {
+                    const routes = e.routes;
+                    const bounds = L.latLngBounds([latitude, longitude], [targetLat, targetLng]);
+                    routeMap.fitBounds(bounds, { padding: [50, 50] });
+                });
+            });
+            
+            routeMap.invalidateSize();
+        }, 300);
+    };
+
+    document.querySelectorAll('.open-route-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const t = e.currentTarget;
+            openRoute(t.dataset.lat, t.dataset.lng, t.dataset.userName);
+        });
+    });
+
+    document.getElementById('close-route-btn')?.addEventListener('click', () => {
+        document.getElementById('route-modal').classList.remove('active');
+    });
+
+    // Location Broadcasting Logic
+    let watchId = null;
+
+    const startBroadcasting = () => {
+        if (!navigator.geolocation) return;
+        console.log("Starting location broadcasting...");
+        watchId = navigator.geolocation.watchPosition(
+            async (pos) => {
+                const { latitude, longitude } = pos.coords;
+                try {
+                    await fetch('/api/location/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lat: latitude, lng: longitude })
+                    });
+                } catch (e) { console.error("Location sync failed", e); }
+            },
+            (err) => console.error("Geolocation error:", err),
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        );
+    };
+
+    const stopBroadcasting = () => {
+        if (watchId) navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    };
+
+    const statusToggle = document.getElementById('online-toggle');
+    const statusLabel = document.getElementById('status-label');
+
+    // Initial check on page load
+    if (statusToggle?.checked) startBroadcasting();
+
+    statusToggle?.addEventListener('change', async (e) => {
+        const isOnline = e.target.checked;
+        if (statusLabel) {
+            statusLabel.innerText = isOnline ? 'STATUS: ONLINE' : 'STATUS: OFFLINE';
+            statusLabel.setAttribute('data-online', isOnline);
+        }
+
+        if (isOnline) startBroadcasting();
+        else stopBroadcasting();
+
+        try {
+            await fetch('/api/worker/toggle_status', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ is_online: isOnline })
+            });
+        } catch (e) { console.error("Failed to update status on server", e); }
+    });
+
+    document.querySelectorAll('.open-chat-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            // chat_modal logic is included globally
+            if (typeof openChat === 'function') {
+                openChat(btn.dataset.jobId, btn.dataset.participantId, btn.dataset.participantName);
+            }
+        });
+    });
+</script>
+
+{% include 'chat_modal.html' %}
+{% endblock %}

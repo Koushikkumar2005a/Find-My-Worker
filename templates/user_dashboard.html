@@ -1,0 +1,468 @@
+{% extends "layout.html" %}
+
+{% block sidebar %}
+    <button class="sidebar-btn" onclick="scrollToSection('active-workers')">
+        <span>👷</span> Active Workers
+    </button>
+    <button class="sidebar-btn" onclick="scrollToSection('active-bookings')">
+        <span>📅</span> Active Bookings
+    </button>
+    <button class="sidebar-btn" onclick="scrollToSection('history')">
+        <span>📜</span> History
+    </button>
+{% endblock %}
+
+{% block content %}
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<!-- Leaflet JS & Routing -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <h2 style="margin: 0;">Find Your Pro worker</h2>
+        <div class="search-bar" style="margin-bottom: 0;">
+            <input type="text" id="worker-search" placeholder="Search for Electricians, Plumbers, Cleaners...">
+        </div>
+    </div>
+
+    <h3 id="active-workers" style="margin-bottom: 1rem; scroll-margin-top: 100px;">Available Workers</h3>
+    <div class="grid">
+        {% for worker in workers %}
+        <div class="card worker-card">
+            <div class="worker-header">
+                <div>
+                    <a href="/profile/{{ worker.id }}" style="text-decoration: none; color: inherit;">
+                        <h4 style="font-size: 1.25rem;">{{ worker.name }}</h4>
+                    </a>
+                    <span class="worker-badge mt-2" style="display:inline-block;">{{ worker.skills }}</span>
+                </div>
+                <div>
+                    <span class="status-dot {% if worker.is_online %}online{% endif %}"></span>
+                    <span style="font-size: 0.85rem; color: var(--gray);">{% if worker.is_online %}Online{% else %}Offline{% endif %}</span>
+                </div>
+            </div>
+            
+            <div class="mt-4 mb-4" style="font-size: 0.9rem; color: var(--gray);">
+                <p style="margin-bottom: 0.5rem;">Contact: <span style="color: white;">{{ worker.phone_number if worker.phone_number else 'Not provided' }}</span></p>
+                <p>Rating: <span style="color: var(--primary-yellow); font-weight: bold;">⭐ {{ "%.1f"|format(worker.rating) }}</span> 
+                   <span style="font-size: 0.8rem; color: var(--gray);">({{ worker.review_count }} reviews)</span>
+                </p>
+            </div>
+
+            <button class="btn btn-outline mt-4 book-btn" data-worker-id="{{ worker.id }}" style="width: 100%;">Book Now</button>
+        </div>
+        {% endfor %}
+    </div>
+
+    <h3 id="active-bookings" style="margin-top: 3rem; margin-bottom: 1rem; scroll-margin-top: 100px;">Active Bookings</h3>
+    
+    {% if active_jobs|length == 0 %}
+        <p style="color: var(--gray); margin-bottom: 2rem;">You have no active bookings.</p>
+    {% else %}
+        <div class="grid" style="margin-bottom: 2rem;">
+            {% for job in active_jobs %}
+            <div class="card" style="border: 1px solid var(--glass-border);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                    <a href="/profile/{{ job.worker_id }}" style="text-decoration: none; color: var(--primary-yellow);">
+                        <h4>{{ job.worker_name }}</h4>
+                    </a>
+                    <span style="font-size: 0.8rem; text-transform: uppercase; padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,0.1);">{{ job.status }}</span>
+                </div>
+                <p style="font-size: 0.85rem; color: var(--gray);">Requested on: {{ job.created_at[:10] if job.created_at else 'N/A' }}</p>
+                <p style="font-size: 0.9rem; margin-top: 1rem;">{{ job.title }}</p>
+                
+                {% if job.status == 'accepted' or job.status == 'in_progress' %}
+                    <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                        <button class="btn btn-primary open-tracking-btn" data-job-id="{{ job.id }}" data-worker-name="{{ job.worker_name }}" style="flex: 1;">Track Worker</button>
+                    </div>
+                {% endif %}
+
+                {% if job.status == 'quoted' %}
+                    <p style="color: var(--primary-yellow); font-weight: bold; margin-top: 1rem;">Quoted Price: ₹{{ job.quoted_price }}</p>
+                    <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                        <button class="btn btn-primary btn-sm user-status-btn" data-job-id="{{ job.id }}" data-status="accepted" style="flex:1; padding: 0.5rem; font-size: 0.85rem;">Accept Quote</button>
+                        <button class="btn btn-outline btn-sm user-status-btn" data-job-id="{{ job.id }}" data-status="declined" style="flex:1; padding: 0.5rem; font-size: 0.85rem;">Cancel</button>
+                    </div>
+                {% elif job.status == 'accepted' or job.status == 'in_progress' %}
+                    <button class="btn btn-outline btn-sm open-chat-btn" data-job-id="{{ job.id }}" data-participant-id="{{ job.worker_id }}" data-participant-name="{{ job.worker_name }}" style="margin-top: 0.5rem; width: 100%;">Chat with {{ job.worker_name }}</button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <h3 id="history" style="margin-top: 2rem; margin-bottom: 1rem; scroll-margin-top: 100px;">Booking History</h3>
+    {% if history_jobs|length == 0 %}
+        <p style="color: var(--gray);">No past bookings found.</p>
+    {% else %}
+        <div class="grid">
+            {% for job in history_jobs %}
+            <div class="card" style="opacity: 0.8; border-color: rgba(255,255,255,0.05);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                    <h4 style="color: var(--gray);">{{ job.worker_name }}</h4>
+                    <span style="font-size: 0.7rem; text-transform: uppercase;">{{ job.status }}</span>
+                </div>
+                <p style="font-size: 0.8rem; color: var(--gray);">{{ job.created_at[:10] if job.created_at else 'N/A' }}</p>
+                <p style="font-size: 0.9rem; margin: 0.5rem 0;">{{ job.title }}</p>
+                {% if job.status == 'completed' and not job.is_rated %}
+                    <button class="btn btn-outline btn-sm open-review-btn" 
+                            data-job-id="{{ job.id }}" 
+                            data-worker-id="{{ job.worker_id }}"
+                            data-worker-name="{{ job.worker_name }}"
+                            style="width: 100%; margin-top: 0.5rem; padding: 0.4rem; font-size: 0.8rem;">
+                        Rate Worker
+                    </button>
+                {% elif job.is_rated %}
+                    <p style="font-size: 0.8rem; color: var(--primary-yellow); margin-top: 0.5rem;">✓ Rated</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+</div>
+
+<!-- Booking Modal -->
+<div id="booking-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 600px;">
+        <h3 id="booking-modal-title">Book Worker</h3>
+        <div class="form-group">
+            <label class="form-label">Service Request Title</label>
+            <input type="text" id="book-title" class="form-control" value="Service Request" />
+        </div>
+        <div class="form-group">
+            <label class="form-label">Describe your problem/request</label>
+            <textarea id="book-desc" class="form-control" rows="3" placeholder="Describe the issue..."></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">Select Service Location</label>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <button class="btn btn-outline btn-sm" id="use-current-loc">📍 Current Location</button>
+                <span id="loc-status" style="font-size: 0.8rem; color: var(--primary-yellow); align-self: center;"></span>
+            </div>
+            <div id="booking-map" class="map-container"></div>
+            <p style="font-size: 0.75rem; color: var(--gray); margin-top: 4px;">Click on the map to set a precise location.</p>
+        </div>
+
+        <div class="form-group" style="margin-top: 1rem;">
+            <label class="form-label">Upload a photo of the problem (Optional)</label>
+            <input type="file" id="book-photo" class="form-control" accept="image/*" />
+        </div>
+
+        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+            <button class="btn btn-primary" id="submit-booking-btn" style="flex: 1;">Send Request</button>
+            <button class="btn btn-outline" id="close-booking-btn" style="flex: 1;">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Tracking Modal -->
+<div id="tracking-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 800px; padding: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0;">Tracking Worker: <span id="track-worker-name" style="color: var(--primary-yellow);"></span></h3>
+            <button id="close-tracking-btn" class="btn btn-outline btn-sm">Close</button>
+        </div>
+        <div id="tracking-map" class="map-container" style="height: 500px;"></div>
+        <div style="margin-top: 1rem; display: flex; gap: 2rem; font-size: 0.9rem;">
+            <div>🚩 <span style="color: var(--gray);">Destination:</span> Your House</div>
+            <div>👷 <span style="color: var(--gray);">Live Position:</span> Professional</div>
+        </div>
+    </div>
+</div>
+
+<!-- Review Modal -->
+<div id="review-modal" class="modal-overlay">
+    <div class="modal-content">
+        <h3 id="review-modal-title">Rate Worker</h3>
+        <p style="color: var(--gray); margin-bottom: 1rem;">Share your experience with <span id="review-worker-name" style="color: var(--primary-yellow);"></span></p>
+        
+        <div class="form-group">
+            <label class="form-label">Rating</label>
+            <div class="star-rating" style="flex-direction: row-reverse; justify-content: flex-end;">
+                <input type="radio" id="rev-star5" name="rev-rating" value="5" /><label for="rev-star5" title="5 stars"></label>
+                <input type="radio" id="rev-star4" name="rev-rating" value="4" /><label for="rev-star4" title="4 stars"></label>
+                <input type="radio" id="rev-star3" name="rev-rating" value="3" /><label for="rev-star3" title="3 stars"></label>
+                <input type="radio" id="rev-star2" name="rev-rating" value="2" /><label for="rev-star2" title="2 stars"></label>
+                <input type="radio" id="rev-star1" name="rev-rating" value="1" /><label for="rev-star1" title="1 star"></label>
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label class="form-label">Tell us more (Optional)</label>
+            <textarea id="review-description" class="form-control" rows="4" placeholder="How was the service?"></textarea>
+        </div>
+
+        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+            <button class="btn btn-primary" id="submit-review-btn" style="flex: 1;">Submit Review</button>
+            <button class="btn btn-outline" id="close-review-btn" style="flex: 1;">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.querySelectorAll('.user-status-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const jobId = e.target.getAttribute('data-job-id');
+            const nextStatus = e.target.getAttribute('data-status');
+            e.target.innerText = "Updating...";
+            try {
+                const response = await fetch('/api/job/status', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({job_id: jobId, status: nextStatus})
+                });
+                const data = await response.json();
+                if(data.success) {
+                    window.location.reload();
+                } else {
+                    alert("Error: " + data.error);
+                    e.target.innerText = "Error";
+                }
+            } catch(err) {
+                alert("Network error."); 
+                e.target.innerText = "Error";
+            }
+        });
+    });
+
+    let currentReviewJobId = null;
+    let currentReviewWorkerId = null;
+
+    document.querySelectorAll('.open-review-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            currentReviewJobId = btn.getAttribute('data-job-id');
+            currentReviewWorkerId = btn.getAttribute('data-worker-id');
+            document.getElementById('review-worker-name').innerText = btn.getAttribute('data-worker-name');
+            document.getElementById('review-modal').classList.add('active');
+        });
+    });
+
+    document.getElementById('close-review-btn').addEventListener('click', () => {
+        document.getElementById('review-modal').classList.remove('active');
+    });
+
+    document.getElementById('submit-review-btn').addEventListener('click', async (e) => {
+        const starInput = document.querySelector('input[name="rev-rating"]:checked');
+        if(!starInput) {
+            alert("Please select a star rating.");
+            return;
+        }
+        
+        e.target.innerText = "Submitting...";
+        const payload = {
+            job_id: currentReviewJobId,
+            worker_id: currentReviewWorkerId,
+            rating: starInput.value,
+            description: document.getElementById('review-description').value
+        };
+
+        try {
+            const response = await fetch('/api/reviews', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if(data.success) {
+                window.location.reload();
+            } else {
+                alert("Error: " + data.error);
+                e.target.innerText = "Submit Review";
+            }
+        } catch (err) {
+            alert("Network error.");
+            e.target.innerText = "Submit Review";
+        }
+    });
+
+    // Leaflet Integration for Booking
+    let bookingMap, bookingMarker;
+    let selectedLat = null, selectedLng = null;
+
+    const initBookingMap = () => {
+        if (bookingMap) return;
+        bookingMap = L.map('booking-map').setView([20.5937, 78.9629], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(bookingMap);
+
+        bookingMap.on('click', (e) => {
+            const { lat, lng } = e.latlng;
+            setMarker(lat, lng);
+        });
+    };
+
+    const setMarker = (lat, lng) => {
+        selectedLat = lat;
+        selectedLng = lng;
+        if (bookingMarker) {
+            bookingMarker.setLatLng([lat, lng]);
+        } else {
+            bookingMarker = L.marker([lat, lng]).addTo(bookingMap);
+        }
+        bookingMap.setView([lat, lng], 15);
+    };
+
+    document.getElementById('use-current-loc')?.addEventListener('click', () => {
+        const status = document.getElementById('loc-status');
+        status.innerText = "Locating...";
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const { latitude, longitude } = pos.coords;
+                setMarker(latitude, longitude);
+                status.innerText = "✓ Found";
+            },
+            () => {
+                status.innerText = "× Error fetching location";
+            }
+        );
+    });
+
+    // Tracking Logic
+    let trackingMap, trackingInterval, trackingControl;
+    const homeIcon = L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/25/25694.png',
+        iconSize: [35, 35], iconAnchor: [17, 35], popupAnchor: [1, -34], className: 'map-marker-icon'
+    });
+    const proIcon = L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/1995/1995471.png',
+        iconSize: [35, 35], iconAnchor: [17, 35], popupAnchor: [1, -34], className: 'map-marker-icon'
+    });
+
+    const openTracking = (jobId, workerName) => {
+        document.getElementById('track-worker-name').innerText = workerName;
+        document.getElementById('tracking-modal').classList.add('active');
+        
+        if (!trackingMap) {
+            trackingMap = L.map('tracking-map');
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(trackingMap);
+        }
+
+        const fetchTrackingData = async () => {
+            try {
+                const res = await fetch(`/api/job/${jobId}/tracking`);
+                const data = await res.json();
+                if (data.success) {
+                    const { destination, worker_pos } = data;
+                    
+                    if (destination.lat && worker_pos.lat) {
+                        if (trackingControl) {
+                            trackingMap.removeControl(trackingControl);
+                        }
+
+                        trackingControl = L.Routing.control({
+                            waypoints: [
+                                L.latLng(worker_pos.lat, worker_pos.lng),
+                                L.latLng(destination.lat, destination.lng)
+                            ],
+                            lineOptions: {
+                                styles: [{ color: '#FFD700', weight: 6, opacity: 0.8 }]
+                            },
+                            createMarker: function(i, wp, n) {
+                                return L.marker(wp.latLng, {
+                                    icon: i === 0 ? proIcon : homeIcon,
+                                    draggable: false
+                                }).bindPopup(i === 0 ? workerName + " (Live)" : "Your House");
+                            },
+                            show: false,
+                            addWaypoints: false,
+                            draggableWaypoints: false
+                        }).addTo(trackingMap);
+
+                        // Auto-fit bounds on first load
+                        const bounds = L.latLngBounds([worker_pos.lat, worker_pos.lng], [destination.lat, destination.lng]);
+                        trackingMap.fitBounds(bounds, { padding: [50, 50] });
+                    }
+                }
+            } catch(e) { console.error("Tracking fetch error", e); }
+        };
+
+        fetchTrackingData();
+        trackingInterval = setInterval(fetchTrackingData, 5000);
+    };
+
+    document.querySelectorAll('.open-tracking-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            openTracking(e.target.dataset.jobId, e.target.dataset.workerName);
+        });
+    });
+
+    document.getElementById('close-tracking-btn')?.addEventListener('click', () => {
+        document.getElementById('tracking-modal').classList.remove('active');
+        clearInterval(trackingInterval);
+    });
+
+    // Booking Logic
+    let currentBookingWorkerId = null;
+    document.querySelectorAll('.book-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            currentBookingWorkerId = e.target.getAttribute('data-worker-id');
+            document.getElementById('booking-modal').classList.add('active');
+            setTimeout(initBookingMap, 300);
+        });
+    });
+
+    document.getElementById('close-booking-btn')?.addEventListener('click', () => {
+        document.getElementById('booking-modal').classList.remove('active');
+    });
+
+    document.getElementById('submit-booking-btn')?.addEventListener('click', async (e) => {
+        if(!currentBookingWorkerId) return;
+        if(!selectedLat) {
+            alert("Please select a location on the map.");
+            return;
+        }
+        
+        e.target.innerText = "Sending...";
+        const formData = new FormData();
+        formData.append('worker_id', currentBookingWorkerId);
+        formData.append('title', document.getElementById('book-title').value);
+        formData.append('description', document.getElementById('book-desc').value);
+        formData.append('lat', selectedLat);
+        formData.append('lng', selectedLng);
+        
+        const photoInput = document.getElementById('book-photo');
+        if (photoInput && photoInput.files.length > 0) {
+            formData.append('photo', photoInput.files[0]);
+        }
+        
+        try {
+            const response = await fetch('/api/book_worker', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            if(data.success) {
+                alert("Booking sent successfully!");
+                window.location.reload();
+            } else {
+                alert("Error: " + data.error);
+                e.target.innerText = "Send Request";
+            }
+        } catch (err) { alert("Network error."); e.target.innerText = "Send Request"; }
+    });
+
+    const searchInput = document.getElementById('worker-search');
+    if(searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            document.querySelectorAll('.worker-card').forEach(card => {
+                const nameText = card.querySelector('h4').innerText.toLowerCase();
+                const skillText = card.querySelector('.worker-badge').innerText.toLowerCase();
+                if (nameText.includes(term) || skillText.includes(term)) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
+    }
+</script>
+
+{% include 'chat_modal.html' %}
+{% endblock %}

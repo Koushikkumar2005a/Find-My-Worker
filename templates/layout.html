@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Find My Worker{% endblock %}</title>
+    <meta name="description" content="Find the best professional workers near you.">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+</head>
+<body>
+    {% if session.get('user_id') %}
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="sidebar-drawer" id="sidebar-drawer">
+        <h3 style="color: var(--primary-yellow); margin-bottom: 2rem; padding: 0 1rem;">Menu</h3>
+        {% block sidebar %}
+        <!-- Sidebar content will be injected by child templates -->
+        {% endblock %}
+    </div>
+    {% endif %}
+
+    <nav class="navbar text-center">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            {% if session.get('user_id') %}
+            <button class="menu-toggle" id="global-menu-toggle" style="padding: 0; margin-right: 0.5rem;">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            {% endif %}
+            <a href="{{ url_for('home') }}" class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary-yellow);"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                Find My Worker
+            </a>
+        </div>
+        <div class="nav-links">
+            {% if session.get('user_id') %}
+                <span class="welcome-text">Welcome, {{ session.get('name') }} ({{ session.get('role').capitalize() }})</span>
+                {% if session.get('role') == 'user' %}
+                    <a href="{{ url_for('user_dashboard') }}" class="btn btn-primary">Dashboard</a>
+                {% else %}
+                    <a href="{{ url_for('worker_dashboard') }}" class="btn btn-primary">Dashboard</a>
+                {% endif %}
+                <a href="{{ url_for('view_profile', profile_id=session.get('user_id')) }}" class="btn btn-outline">My Profile</a>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline" style="border-color: #ff4444; color: #ff4444;">Logout</a>
+            {% else %}
+                <a href="{{ url_for('auth', action='login') }}" class="btn btn-outline">Login</a>
+                <a href="{{ url_for('auth', action='register') }}" class="btn btn-primary">Register</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    {% block content %}
+    {% endblock %}
+
+    <script>
+        // Global Sidebar Toggle Logic
+        const globalMenuToggle = document.getElementById('global-menu-toggle');
+        const sidebarDrawer = document.getElementById('sidebar-drawer');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+        if (globalMenuToggle && sidebarDrawer && sidebarOverlay) {
+            const toggleSidebar = () => {
+                sidebarDrawer.classList.toggle('active');
+                sidebarOverlay.classList.toggle('active');
+            };
+
+            globalMenuToggle.addEventListener('click', toggleSidebar);
+            sidebarOverlay.addEventListener('click', toggleSidebar);
+
+            // Close sidebar when clicking outside or globally
+            window.scrollToSection = (id) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.scrollIntoView({ behavior: 'smooth' });
+                    toggleSidebar();
+                }
+            };
+        }
+    </script>
+</body>
+</html>
