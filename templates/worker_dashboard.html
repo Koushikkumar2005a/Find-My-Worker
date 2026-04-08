@@ -36,9 +36,11 @@
 
     <div class="grid" style="margin-bottom: 3rem;">
         <div class="card stat-card">
-            <span class="stat-label">Total Earnings</span>
-            <span class="stat-value">₹{{ "%.2f"|format(worker.earnings) }}</span>
-            <span style="color: #00C851; font-size: 0.85rem; margin-top: 0.5rem;">+12% this week</span>
+            <span class="stat-label">Total Earnings (Net 85%)</span>
+            <span class="stat-value">₹{{ "%.2f"|format(lifetime_earnings) }}</span>
+            <span style="color: {{ '#00C851' if earnings_growth >= 0 else '#ff4444' }}; font-size: 0.85rem; margin-top: 0.5rem;">
+                {{ '+' if earnings_growth > 0 else '' }}{{ "%.1f"|format(earnings_growth) }}% this week
+            </span>
         </div>
         <div class="card stat-card">
             <span class="stat-label">Average Rating</span>
@@ -111,7 +113,7 @@
     {% if history_jobs|length == 0 %}
         <p style="color: var(--gray);">No past jobs found.</p>
     {% else %}
-        <div class="grid">
+        <div class="grid" id="history-list">
             {% for job in history_jobs %}
             <div class="card" style="opacity: 0.8; border-color: rgba(255,255,255,0.05);">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
@@ -178,57 +180,66 @@
 </div>
 
 <script>
-    document.querySelectorAll('.status-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            const jobId = e.target.getAttribute('data-job-id');
-            const nextStatus = e.target.getAttribute('data-status');
-            e.target.innerText = "Updating...";
-            try {
-                const response = await fetch('/api/job/status', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        job_id: jobId,
-                        status: nextStatus
-                    })
-                });
-                const data = await response.json();
-                if(data.success) {
-                    window.location.reload();
-                } else {
-                    alert("Error: " + data.error);
-                    e.target.innerText = "Error";
+    // Real-Time Hot-Swapping Module
+    async function syncDashboard() {
+        try {
+            const res = await fetch(window.location.href);
+            const text = await res.text();
+            const parser = new DOMParser();
+            const newDoc = parser.parseFromString(text, 'text/html');
+            
+            const containersToSync = ['recent-requests-list', 'history-list'];
+            containersToSync.forEach(id => {
+                const oldEl = document.getElementById(id);
+                const newEl = newDoc.getElementById(id);
+                if (oldEl && newEl && oldEl.innerHTML !== newEl.innerHTML) {
+                    oldEl.innerHTML = newEl.innerHTML;
                 }
-            } catch (err) {
-                alert("Network error."); 
-                e.target.innerText = "Error";
-            }
-        });
-    });
+            });
+        } catch(e) {}
+    }
+    setInterval(syncDashboard, 5000);
 
     let currentQuoteJobId = null;
     let detailMap, detailMarker;
 
-    document.querySelectorAll('.open-details-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const target = e.currentTarget;
-            currentQuoteJobId = target.getAttribute('data-job-id');
-            const desc = target.getAttribute('data-desc') || 'No description provided.';
-            const photo = target.getAttribute('data-photo');
-            const lat = parseFloat(target.getAttribute('data-lat'));
-            const lng = parseFloat(target.getAttribute('data-lng'));
+    // Event Delegation for dynamically Hot-Swapped UI components
+    document.body.addEventListener('click', async (e) => {
+        // Handle Action status buttons (Decline, Accept, Start, Complete)
+        const statusBtn = e.target.closest('.status-btn');
+        if (statusBtn) {
+            const jobId = statusBtn.getAttribute('data-job-id');
+            const status = statusBtn.getAttribute('data-status');
+            statusBtn.innerText = "Processing...";
+            try {
+                const response = await fetch('/api/job/status', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({job_id: jobId, status: status})
+                });
+                const data = await response.json();
+                if(data.success) syncDashboard();
+                else { alert("Error: " + data.error); statusBtn.innerText = "Error"; }
+            } catch(err) { alert("Network error."); statusBtn.innerText = "Error"; }
+            return;
+        }
+
+        // Open details map
+        const detailBtn = e.target.closest('.open-details-btn');
+        if (detailBtn) {
+            currentQuoteJobId = detailBtn.getAttribute('data-job-id');
+            const desc = detailBtn.getAttribute('data-desc') || 'No description provided.';
+            const photo = detailBtn.getAttribute('data-photo');
+            const lat = parseFloat(detailBtn.getAttribute('data-lat'));
+            const lng = parseFloat(detailBtn.getAttribute('data-lng'));
             
             document.getElementById('detail-desc').innerText = desc;
             
-            // Photo handling
             if(photo && photo !== 'None' && photo !== '') {
                 document.getElementById('detail-photo').src = photo;
                 document.getElementById('detail-photo-container').style.display = 'block';
-            } else {
-                document.getElementById('detail-photo-container').style.display = 'none';
-            }
+            } else document.getElementById('detail-photo-container').style.display = 'none';
             
-            // Map handling
             document.getElementById('details-modal').classList.add('active');
             
             setTimeout(() => {
@@ -243,7 +254,15 @@
                 }
                 detailMap.invalidateSize();
             }, 300);
-        });
+            return;
+        }
+        
+        // Open route map
+        const routeBtn = e.target.closest('.open-route-btn');
+        if (routeBtn) {
+            openRoute(routeBtn.dataset.lat, routeBtn.dataset.lng, routeBtn.dataset.userName);
+            return;
+        }
     });
 
     document.getElementById('close-details-btn').addEventListener('click', () => {
@@ -252,10 +271,7 @@
 
     document.getElementById('send-quote-btn').addEventListener('click', async (e) => {
         const price = document.getElementById('quote-price').value;
-        if(!price || isNaN(price)) {
-            alert("Please enter a valid amount.");
-            return;
-        }
+        if(!price || isNaN(price)) { alert("Please enter a valid amount."); return; }
         e.target.innerText = "Sending...";
         try {
             const res = await fetch('/api/job/quote', {
@@ -265,15 +281,11 @@
             });
             const data = await res.json();
             if(data.success) {
-                window.location.reload();
-            } else {
-                alert("Error: " + data.error);
+                document.getElementById('details-modal').classList.remove('active');
+                syncDashboard();
                 e.target.innerText = "Send Quote";
-            }
-        } catch(err) {
-            alert("Network Error");
-            e.target.innerText = "Send Quote";
-        }
+            } else { alert("Error: " + data.error); e.target.innerText = "Send Quote"; }
+        } catch(err) { alert("Network Error"); e.target.innerText = "Send Quote"; }
     });
     // Route Viewing Logic
     let routeMap, routeControl;
@@ -334,13 +346,6 @@
         }, 300);
     };
 
-    document.querySelectorAll('.open-route-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const t = e.currentTarget;
-            openRoute(t.dataset.lat, t.dataset.lng, t.dataset.userName);
-        });
-    });
-
     document.getElementById('close-route-btn')?.addEventListener('click', () => {
         document.getElementById('route-modal').classList.remove('active');
     });
@@ -397,39 +402,13 @@
         } catch (e) { console.error("Failed to update status on server", e); }
     });
 
-    document.querySelectorAll('.open-chat-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            // chat_modal logic is included globally
-            if (typeof openChat === 'function') {
-                openChat(btn.dataset.jobId, btn.dataset.participantId, btn.dataset.participantName);
-            }
-        });
-    });
-
     // Real-time Dashboard Updates
     if (window.supabase_client) {
         window.supabase_client
             .channel('worker_dashboard_updates')
-            .on('postgres_changes', { 
-                event: 'UPDATE', 
-                schema: 'public', 
-                table: 'jobs',
-                filter: `worker_id=eq.${CURRENT_USER_ID}`
-            }, payload => {
-                console.log("Job Update Detected:", payload.new);
-                // When status or quote changes, reload to sync with Jinja logic
-                window.location.reload(); 
-            })
-            .on('postgres_changes', { 
-                event: 'INSERT', 
-                schema: 'public', 
-                table: 'jobs',
-                filter: `worker_id=eq.${CURRENT_USER_ID}`
-            }, payload => {
-                console.log("New Request Detected!");
-                window.location.reload(); 
-            })
-            .subscribe();
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs', filter: `worker_id=eq.${CURRENT_USER_ID}` }, payload => {
+                syncDashboard(); 
+            }).subscribe();
     }
 </script>
 

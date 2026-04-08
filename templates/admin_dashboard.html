@@ -1,0 +1,143 @@
+{% extends "layout.html" %}
+
+{% block sidebar %}
+    <button class="sidebar-btn" onclick="scrollToSection('stats')">
+        <span>📊</span> Platform Stats
+    </button>
+    <button class="sidebar-btn" onclick="scrollToSection('workers')">
+        <span>👷</span> Verified Workers
+    </button>
+    <button class="sidebar-btn" onclick="scrollToSection('users')">
+        <span>👤</span> Registered Users
+    </button>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <div>
+            <h2 style="margin: 0; color: var(--primary-yellow);">Admin Control Panel</h2>
+            <p style="margin: 0; color: var(--gray);">Monitor marketplace analytics and revenue scaling</p>
+        </div>
+    </div>
+
+    <h3 id="stats" style="margin-bottom: 1.5rem; scroll-margin-top: 100px;">Platform Statistics</h3>
+    <div class="grid" style="margin-bottom: 3rem;">
+        <div class="card stat-card">
+            <span class="stat-label">Total Users</span>
+            <span class="stat-value">{{ total_users }}</span>
+        </div>
+        <div class="card stat-card">
+            <span class="stat-label">Verified Workers</span>
+            <span class="stat-value">{{ total_workers }}</span>
+        </div>
+        <div class="card stat-card">
+            <span class="stat-label">Gross Processed Value (GPV)</span>
+            <span class="stat-value">₹{{ "%.2f"|format(total_gross) }}</span>
+            <span style="color: var(--gray); font-size: 0.85rem; margin-top: 0.5rem;">All completed jobs combined</span>
+        </div>
+        <div class="card stat-card" style="border: 1px solid var(--primary-yellow);">
+            <span class="stat-label" style="color: var(--primary-yellow);">Admin Revenue (15% Cut)</span>
+            <span class="stat-value" style="color: var(--primary-yellow);">₹{{ "%.2f"|format(admin_earnings) }}</span>
+            <span style="color: #00C851; font-size: 0.85rem; margin-top: 0.5rem;">Total Profit</span>
+        </div>
+    </div>
+
+    <h3 id="workers" style="margin-bottom: 1.5rem; scroll-margin-top: 100px;">Verified Workers & Earnings (85% Net)</h3>
+    <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 3rem;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead>
+                <tr style="background: rgba(255, 255, 255, 0.05); border-bottom: 1px solid var(--glass-border);">
+                    <th style="padding: 1rem; color: var(--gray);">Worker</th>
+                    <th style="padding: 1rem; color: var(--gray);">Email / Contact</th>
+                    <th style="padding: 1rem; color: var(--gray);">Skills</th>
+                    <th style="padding: 1rem; color: var(--gray);">Net Earnings (85%)</th>
+                    <th style="padding: 1rem; color: var(--gray); text-align: center;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for w in worker_stats %}
+                <tr style="border-bottom: 1px solid var(--glass-border);">
+                    <td style="padding: 1rem; color: white;"><strong>{{ w.name }}</strong></td>
+                    <td style="padding: 1rem; color: var(--gray); font-size: 0.9rem;">{{ w.email }}</td>
+                    <td style="padding: 1rem; color: var(--gray); font-size: 0.9rem;">{{ w.skills or 'N/A' }}</td>
+                    <td style="padding: 1rem; color: var(--primary-yellow);">₹{{ "%.2f"|format(w.earnings) }}</td>
+                    <td style="padding: 1rem; text-align: center;">
+                        <button class="btn btn-outline btn-sm delete-profile-btn" data-profile-id="{{ w.id }}" data-profile-name="{{ w.name }}" style="border-color: #ff4444; color: #ff4444; padding: 0.4rem 0.8rem; font-size: 0.8rem;">Delete Account</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if worker_stats|length == 0 %}
+                <tr>
+                    <td colspan="5" style="padding: 1rem; text-align: center; color: var(--gray);">No workers registered yet.</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <h3 id="users" style="margin-top: 2rem; margin-bottom: 1.5rem; scroll-margin-top: 100px;">Registered Users</h3>
+    <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 4rem;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead>
+                <tr style="background: rgba(255, 255, 255, 0.05); border-bottom: 1px solid var(--glass-border);">
+                    <th style="padding: 1rem; color: var(--gray);">Name</th>
+                    <th style="padding: 1rem; color: var(--gray);">Email</th>
+                    <th style="padding: 1rem; color: var(--gray); text-align: center;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set users_list = [] %}
+                {% for p in all_profiles %}
+                    {% if p.role == 'user' %}
+                        {% set _ = users_list.append(p) %}
+                        <tr style="border-bottom: 1px solid var(--glass-border);">
+                            <td style="padding: 1rem; color: white;"><strong>{{ p.name }}</strong></td>
+                            <td style="padding: 1rem; color: var(--gray); font-size: 0.9rem;">{{ p.email }}</td>
+                            <td style="padding: 1rem; text-align: center;">
+                                <button class="btn btn-outline btn-sm delete-profile-btn" data-profile-id="{{ p.id }}" data-profile-name="{{ p.name }}" style="border-color: #ff4444; color: #ff4444; padding: 0.4rem 0.8rem; font-size: 0.8rem;">Delete Account</button>
+                            </td>
+                        </tr>
+                    {% endif %}
+                {% endfor %}
+                {% if users_list|length == 0 %}
+                <tr>
+                    <td colspan="3" style="padding: 1rem; text-align: center; color: var(--gray);">No users registered yet.</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
+<script>
+document.querySelectorAll('.delete-profile-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+        const profileId = e.target.getAttribute('data-profile-id');
+        const profileName = e.target.getAttribute('data-profile-name');
+        
+        if (confirm(`CRITICAL WARNING:\nAre you absolutely sure you want to delete the account for ${profileName}?\nThis action will permanently erase all associated jobs, reviews, and records.`)) {
+            e.target.innerText = "Deleting...";
+            try {
+                const res = await fetch('/api/admin/delete_profile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ profile_id: profileId })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert("Failed to delete account: " + data.error);
+                    e.target.innerText = "Delete Account";
+                }
+            } catch (err) {
+                alert("Network error occurred.");
+                e.target.innerText = "Delete Account";
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

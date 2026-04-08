@@ -205,11 +205,45 @@
 </div>
 
 <script>
-    document.querySelectorAll('.user-status-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            const jobId = e.target.getAttribute('data-job-id');
-            const nextStatus = e.target.getAttribute('data-status');
-            e.target.innerText = "Updating...";
+    // Real-Time Hot-Swapping Module
+    async function syncDashboard() {
+        try {
+            const res = await fetch(window.location.href);
+            const text = await res.text();
+            const parser = new DOMParser();
+            const newDoc = parser.parseFromString(text, 'text/html');
+            
+            const containersToSync = ['active-jobs-list', 'history-grid'];
+            containersToSync.forEach(id => {
+                const oldEl = document.getElementById(id);
+                const newEl = newDoc.getElementById(id);
+                if (oldEl && newEl && oldEl.innerHTML !== newEl.innerHTML) {
+                    oldEl.innerHTML = newEl.innerHTML;
+                }
+            });
+        } catch(e) { /* silent fail for background poll */ }
+    }
+    
+    // Poll every 5 seconds
+    setInterval(syncDashboard, 5000);
+
+    // Turn off Supabase force reload since we hot-swap smoothly now
+    if (window.supabase_client) {
+        window.supabase_client
+            .channel('dashboard_updates')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs', filter: `user_id=eq.${CURRENT_USER_ID}` }, payload => {
+                syncDashboard(); 
+            }).subscribe();
+    }
+
+    // Event Delegation for dynamically Hot-Swapped UI components
+    document.body.addEventListener('click', async (e) => {
+        // Handle User Status Action (Accept/Cancel Quotes)
+        const statusBtn = e.target.closest('.user-status-btn');
+        if (statusBtn) {
+            const jobId = statusBtn.getAttribute('data-job-id');
+            const nextStatus = statusBtn.getAttribute('data-status');
+            statusBtn.innerText = "Updating...";
             try {
                 const response = await fetch('/api/job/status', {
                     method: 'POST',
@@ -217,30 +251,42 @@
                     body: JSON.stringify({job_id: jobId, status: nextStatus})
                 });
                 const data = await response.json();
-                if(data.success) {
-                    window.location.reload();
-                } else {
-                    alert("Error: " + data.error);
-                    e.target.innerText = "Error";
-                }
-            } catch(err) {
-                alert("Network error."); 
-                e.target.innerText = "Error";
-            }
-        });
+                if(data.success) syncDashboard();
+                else { alert("Error: " + data.error); statusBtn.innerText = "Error"; }
+            } catch(err) { alert("Network error."); }
+            return;
+        }
+
+        // Handle Booking Modal Open
+        const bookBtn = e.target.closest('.book-btn');
+        if (bookBtn) {
+            currentBookingWorkerId = bookBtn.getAttribute('data-worker-id');
+            document.getElementById('booking-modal').classList.add('active');
+            setTimeout(initBookingMap, 300);
+            return;
+        }
+
+        // Handle Checking Tracking
+        const trackBtn = e.target.closest('.open-tracking-btn');
+        if (trackBtn) {
+            openTracking(trackBtn.dataset.jobId, trackBtn.dataset.workerName);
+            return;
+        }
+
+        // Handle Review Opening
+        const reviewBtn = e.target.closest('.open-review-btn');
+        if (reviewBtn) {
+            currentReviewJobId = reviewBtn.getAttribute('data-job-id');
+            currentReviewWorkerId = reviewBtn.getAttribute('data-worker-id');
+            document.getElementById('review-worker-name').innerText = reviewBtn.getAttribute('data-worker-name');
+            document.getElementById('review-modal').classList.add('active');
+            return;
+        }
     });
 
     let currentReviewJobId = null;
     let currentReviewWorkerId = null;
-
-    document.querySelectorAll('.open-review-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            currentReviewJobId = btn.getAttribute('data-job-id');
-            currentReviewWorkerId = btn.getAttribute('data-worker-id');
-            document.getElementById('review-worker-name').innerText = btn.getAttribute('data-worker-name');
-            document.getElementById('review-modal').classList.add('active');
-        });
-    });
+    let currentBookingWorkerId = null;
 
     document.getElementById('close-review-btn').addEventListener('click', () => {
         document.getElementById('review-modal').classList.remove('active');
@@ -248,36 +294,29 @@
 
     document.getElementById('submit-review-btn').addEventListener('click', async (e) => {
         const starInput = document.querySelector('input[name="rev-rating"]:checked');
-        if(!starInput) {
-            alert("Please select a star rating.");
-            return;
-        }
-        
+        if(!starInput) { alert("Please select a star rating."); return; }
         e.target.innerText = "Submitting...";
-        const payload = {
-            job_id: currentReviewJobId,
-            worker_id: currentReviewWorkerId,
-            rating: starInput.value,
-            description: document.getElementById('review-description').value
-        };
-
+        
         try {
             const response = await fetch('/api/reviews', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
+                body: JSON.stringify({
+                    job_id: currentReviewJobId,
+                    worker_id: currentReviewWorkerId,
+                    rating: starInput.value,
+                    description: document.getElementById('review-description').value
+                })
             });
             const data = await response.json();
             if(data.success) {
-                window.location.reload();
+                document.getElementById('review-modal').classList.remove('active');
+                syncDashboard();
             } else {
                 alert("Error: " + data.error);
-                e.target.innerText = "Submit Review";
             }
-        } catch (err) {
-            alert("Network error.");
-            e.target.innerText = "Submit Review";
-        }
+        } catch (err) { alert("Network error."); }
+        e.target.innerText = "Submit Review";
     });
 
     // Leaflet Integration for Booking
@@ -287,24 +326,14 @@
     const initBookingMap = () => {
         if (bookingMap) return;
         bookingMap = L.map('booking-map').setView([20.5937, 78.9629], 5);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
-        }).addTo(bookingMap);
-
-        bookingMap.on('click', (e) => {
-            const { lat, lng } = e.latlng;
-            setMarker(lat, lng);
-        });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(bookingMap);
+        bookingMap.on('click', (e) => setMarker(e.latlng.lat, e.latlng.lng));
     };
 
     const setMarker = (lat, lng) => {
-        selectedLat = lat;
-        selectedLng = lng;
-        if (bookingMarker) {
-            bookingMarker.setLatLng([lat, lng]);
-        } else {
-            bookingMarker = L.marker([lat, lng]).addTo(bookingMap);
-        }
+        selectedLat = lat; selectedLng = lng;
+        if (bookingMarker) bookingMarker.setLatLng([lat, lng]);
+        else bookingMarker = L.marker([lat, lng]).addTo(bookingMap);
         bookingMap.setView([lat, lng], 15);
     };
 
@@ -312,99 +341,46 @@
         const status = document.getElementById('loc-status');
         status.innerText = "Locating...";
         navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                const { latitude, longitude } = pos.coords;
-                setMarker(latitude, longitude);
-                status.innerText = "✓ Found";
-            },
-            () => {
-                status.innerText = "× Error fetching location";
-            }
+            pos => { setMarker(pos.coords.latitude, pos.coords.longitude); status.innerText = "✓ Found"; },
+            () => { status.innerText = "× Error fetching location"; }
         );
     });
 
     // Tracking Logic
     let trackingMap, trackingInterval, trackingControl;
-    const homeIcon = L.icon({
-        iconUrl: 'https://cdn-icons-png.flaticon.com/512/25/25694.png',
-        iconSize: [35, 35], iconAnchor: [17, 35], popupAnchor: [1, -34], className: 'map-marker-icon'
-    });
-    const proIcon = L.icon({
-        iconUrl: 'https://cdn-icons-png.flaticon.com/512/1995/1995471.png',
-        iconSize: [35, 35], iconAnchor: [17, 35], popupAnchor: [1, -34], className: 'map-marker-icon'
-    });
+    const homeIcon = L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/512/25/25694.png', iconSize: [35, 35], iconAnchor: [17, 35], popupAnchor: [1, -34] });
+    const proIcon = L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/512/1995/1995471.png', iconSize: [35, 35], iconAnchor: [17, 35], popupAnchor: [1, -34] });
 
     const openTracking = (jobId, workerName) => {
         document.getElementById('track-worker-name').innerText = workerName;
         document.getElementById('tracking-modal').classList.add('active');
-        
         if (!trackingMap) {
             trackingMap = L.map('tracking-map');
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(trackingMap);
         }
-
         const fetchTrackingData = async () => {
             try {
                 const res = await fetch(`/api/job/${jobId}/tracking`);
                 const data = await res.json();
-                if (data.success) {
-                    const { destination, worker_pos } = data;
-                    
-                    if (destination.lat && worker_pos.lat) {
-                        if (trackingControl) {
-                            trackingMap.removeControl(trackingControl);
-                        }
-
-                        trackingControl = L.Routing.control({
-                            waypoints: [
-                                L.latLng(worker_pos.lat, worker_pos.lng),
-                                L.latLng(destination.lat, destination.lng)
-                            ],
-                            lineOptions: {
-                                styles: [{ color: '#FFD700', weight: 6, opacity: 0.8 }]
-                            },
-                            createMarker: function(i, wp, n) {
-                                return L.marker(wp.latLng, {
-                                    icon: i === 0 ? proIcon : homeIcon,
-                                    draggable: false
-                                }).bindPopup(i === 0 ? workerName + " (Live)" : "Your House");
-                            },
-                            show: false,
-                            addWaypoints: false,
-                            draggableWaypoints: false
-                        }).addTo(trackingMap);
-
-                        // Auto-fit bounds on first load
-                        const bounds = L.latLngBounds([worker_pos.lat, worker_pos.lng], [destination.lat, destination.lng]);
-                        trackingMap.fitBounds(bounds, { padding: [50, 50] });
-                    }
+                if (data.success && data.destination.lat && data.worker_pos.lat) {
+                    if (trackingControl) trackingMap.removeControl(trackingControl);
+                    trackingControl = L.Routing.control({
+                        waypoints: [L.latLng(data.worker_pos.lat, data.worker_pos.lng), L.latLng(data.destination.lat, data.destination.lng)],
+                        lineOptions: { styles: [{ color: '#FFD700', weight: 6, opacity: 0.8 }] },
+                        createMarker: (i, wp) => L.marker(wp.latLng, { icon: i === 0 ? proIcon : homeIcon }).bindPopup(i === 0 ? workerName + " (Live)" : "Your House"),
+                        show: false, addWaypoints: false, draggableWaypoints: false
+                    }).addTo(trackingMap);
+                    trackingMap.fitBounds(L.latLngBounds([data.worker_pos.lat, data.worker_pos.lng], [data.destination.lat, data.destination.lng]), { padding: [50, 50] });
                 }
-            } catch(e) { console.error("Tracking fetch error", e); }
+            } catch(e) {}
         };
-
         fetchTrackingData();
         trackingInterval = setInterval(fetchTrackingData, 5000);
     };
 
-    document.querySelectorAll('.open-tracking-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            openTracking(e.target.dataset.jobId, e.target.dataset.workerName);
-        });
-    });
-
     document.getElementById('close-tracking-btn')?.addEventListener('click', () => {
         document.getElementById('tracking-modal').classList.remove('active');
         clearInterval(trackingInterval);
-    });
-
-    // Booking Logic
-    let currentBookingWorkerId = null;
-    document.querySelectorAll('.book-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            currentBookingWorkerId = e.target.getAttribute('data-worker-id');
-            document.getElementById('booking-modal').classList.add('active');
-            setTimeout(initBookingMap, 300);
-        });
     });
 
     document.getElementById('close-booking-btn')?.addEventListener('click', () => {
@@ -413,10 +389,7 @@
 
     document.getElementById('submit-booking-btn')?.addEventListener('click', async (e) => {
         if(!currentBookingWorkerId) return;
-        if(!selectedLat) {
-            alert("Please select a location on the map.");
-            return;
-        }
+        if(!selectedLat) { alert("Please select a location on the map."); return; }
         
         e.target.innerText = "Sending...";
         const formData = new FormData();
@@ -427,23 +400,16 @@
         formData.append('lng', selectedLng);
         
         const photoInput = document.getElementById('book-photo');
-        if (photoInput && photoInput.files.length > 0) {
-            formData.append('photo', photoInput.files[0]);
-        }
+        if (photoInput && photoInput.files.length > 0) formData.append('photo', photoInput.files[0]);
         
         try {
-            const response = await fetch('/api/book_worker', {
-                method: 'POST',
-                body: formData
-            });
+            const response = await fetch('/api/book_worker', { method: 'POST', body: formData });
             const data = await response.json();
             if(data.success) {
-                alert("Booking sent successfully!");
-                window.location.reload();
-            } else {
-                alert("Error: " + data.error);
+                document.getElementById('booking-modal').classList.remove('active');
+                syncDashboard();
                 e.target.innerText = "Send Request";
-            }
+            } else { alert("Error: " + data.error); e.target.innerText = "Send Request"; }
         } catch (err) { alert("Network error."); e.target.innerText = "Send Request"; }
     });
 
@@ -454,34 +420,9 @@
             document.querySelectorAll('.worker-card').forEach(card => {
                 const nameText = card.querySelector('h4').innerText.toLowerCase();
                 const skillText = card.querySelector('.worker-badge').innerText.toLowerCase();
-                if (nameText.includes(term) || skillText.includes(term)) {
-                    card.style.display = 'block';
-                } else {
-                    card.style.display = 'none';
-                }
+                card.style.display = (nameText.includes(term) || skillText.includes(term)) ? 'block' : 'none';
             });
         });
-    }
-
-    // Real-time Dashboard Updates
-    if (window.supabase_client) {
-        window.supabase_client
-            .channel('dashboard_updates')
-            .on('postgres_changes', { 
-                event: 'UPDATE', 
-                schema: 'public', 
-                table: 'jobs',
-                filter: `user_id=eq.${CURRENT_USER_ID}`
-            }, payload => {
-                console.log("Job Update Detected:", payload.new);
-                // Simple approach: When a foreign party updates our job, we reload to keep consistent with Jinja labels
-                // But avoid full reload if possible - though for complex Jinja buttons, reload is safest.
-                // To fulfill "no refresh", we could fetch a partial view, but since the user requested 5s poll first then realtime,
-                // a silent page reload is a middle ground OR we can just update the badge and hide the quoted section.
-                // Let's do a silent reload for now to ensure all Jinja logic stays correct.
-                window.location.reload(); 
-            })
-            .subscribe();
     }
 </script>
 

@@ -3,7 +3,7 @@
 {% block content %}
 <div class="auth-container">
     <div class="auth-card">
-        <h2>{{ 'Login to Account' if action == 'login' else 'Create an Account' }}</h2>
+        <h2>{{ 'System Admin Login' if request.args.get('type') == 'admin' else ('Login to Account' if action == 'login' else 'Create an Account') }}</h2>
 
         {% if error %}
         <p style="color: #ff4444; margin-bottom: 1rem; text-align: center;">{{ error }}</p>
@@ -12,10 +12,10 @@
         <form method="POST" action="{{ url_for('auth') }}" enctype="multipart/form-data">
             <input type="hidden" name="action" value="{{ action }}">
             
-            <div class="form-group">
+            <div class="form-group" style="{% if request.args.get('type') == 'admin' %}display: none;{% endif %}">
                 <label class="form-label" for="role" style="font-weight: 700; letter-spacing: 1px; color: var(--primary-yellow);">CHOOSE YOUR CHARACTER</label>
                 <div style="position: relative;">
-                    <select class="form-control" id="role-select" name="role" required style="appearance: none; background: rgba(0,0,0,0.3); border: 2px solid var(--glass-border); padding-left: 2.5rem; font-weight: 600;">
+                    <select class="form-control" id="role-select" name="role" {% if request.args.get('type') != 'admin' %}required{% endif %} style="appearance: none; background: rgba(0,0,0,0.3); border: 2px solid var(--glass-border); padding-left: 2.5rem; font-weight: 600;">
                         <option value="user">User seeking a service 👤</option>
                         <option value="worker">Pro Worker offering services 🛠️</option>
                     </select>
@@ -78,7 +78,7 @@
             </button>
         </form>
 
-        <p style="text-align: center; margin-top: 1.5rem; color: var(--gray); font-size: 0.9rem;">
+        <p style="text-align: center; margin-top: 1.5rem; color: var(--gray); font-size: 0.9rem; {% if request.args.get('type') == 'admin' %}display: none;{% endif %}">
             {% if action == 'login' %}
             Don't have an account? <a href="{{ url_for('auth', action='register') }}" style="color: var(--primary-yellow)">Register here</a>
             {% else %}

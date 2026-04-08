@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import time
-
+from datetime import datetime, timedelta, timezone
 load_dotenv()
 
 app = Flask(__name__)
@@ -58,7 +58,10 @@ def upload_to_supabase(file, bucket="uploads"):
 @app.route("/")
 def home():
     if "user_id" in session:
-        return redirect(url_for("user_dashboard" if session.get("role") == "user" else "worker_dashboard"))
+        role = session.get("role")
+        if role == "admin":
+            return redirect(url_for("admin_dashboard"))
+        return redirect(url_for("user_dashboard" if role == "user" else "worker_dashboard"))
     return render_template("index.html")
 
 @app.route("/auth", methods=["GET", "POST"])
@@ -115,6 +118,12 @@ def auth():
                  return render_template("auth.html", action="register", error=f"Registration failed: {str(e)}")
 
         elif action == "login":
+            if email == "admin@fmw.com" and password == "Admin@1":
+                session["user_id"] = "admin"
+                session["role"] = "admin"
+                session["name"] = "System Admin"
+                return redirect(url_for("admin_dashboard"))
+                
             role = request.form.get("role")
             response = supabase.table("profiles").select("*").eq("email", email).execute()
             
@@ -137,6 +146,85 @@ def auth():
 def logout():
     session.clear()
     return redirect(url_for("home"))
+
+@app.route("/dashboard/admin")
+def admin_dashboard():
+    if session.get("role") != "admin":
+        return redirect(url_for("home"))
+    
+    if not supabase:
+        return "Database connection failed", 500
+        
+    profiles_resp = supabase.table("profiles").select("*").execute()
+    profiles = profiles_resp.data
+    
+    jobs_resp = supabase.table("jobs").select("*").eq("status", "completed").execute()
+    completed_jobs = jobs_resp.data
+    
+    total_users = len([p for p in profiles if p.get("role") == "user"])
+    total_workers = len([p for p in profiles if p.get("role") == "worker"])
+    
+    total_gross = 0.0
+    worker_earnings = {}
+    
+    for job in completed_jobs:
+        price = float(job.get("quoted_price") or 0)
+        total_gross += price
+        worker_id = job.get("worker_id")
+        if worker_id:
+            worker_earnings[worker_id] = worker_earnings.get(worker_id, 0.0) + (price * 0.85)
+
+    admin_earnings = total_gross * 0.15
+    total_worker_net = total_gross * 0.85
+    
+    worker_stats = []
+    for p in profiles:
+        if p.get("role") == "worker":
+            p_id = p.get("id")
+            w_earnings = worker_earnings.get(p_id, 0.0)
+            worker_stats.append({
+                "id": p_id,
+                "name": p.get("name", "Unknown"),
+                "email": p.get("email", ""),
+                "skills": p.get("skills", ""),
+                "earnings": w_earnings
+            })
+            
+    return render_template("admin_dashboard.html", 
+        total_users=total_users, 
+        total_workers=total_workers, 
+        total_gross=total_gross, 
+        admin_earnings=admin_earnings, 
+        total_worker_net=total_worker_net,
+        worker_stats=worker_stats,
+        all_profiles=profiles)
+
+@app.route("/api/admin/delete_profile", methods=["POST"])
+def admin_delete_profile():
+    if session.get("role") != "admin":
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+        
+    data = request.json
+    profile_id = data.get("profile_id")
+    if not profile_id:
+        return jsonify({"success": False, "error": "Missing profile ID"}), 400
+        
+    try:
+        # Cascade deletion manually
+        supabase.table("messages").delete().eq("sender_id", profile_id).execute()
+        supabase.table("messages").delete().eq("receiver_id", profile_id).execute()
+        
+        supabase.table("reviews").delete().eq("worker_id", profile_id).execute()
+        supabase.table("reviews").delete().eq("user_id", profile_id).execute()
+        
+        supabase.table("jobs").delete().eq("worker_id", profile_id).execute()
+        supabase.table("jobs").delete().eq("user_id", profile_id).execute()
+        
+        supabase.table("profiles").delete().eq("id", profile_id).execute()
+        
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/dashboard/user")
 def user_dashboard():
@@ -224,7 +312,41 @@ def worker_dashboard():
     history_jobs = [j for j in all_jobs if j["status"] in ["completed", "declined"]]
     active_jobs_count = len([j for j in recent_requests if j["status"] == "in_progress"])
     
-    return render_template("worker_dashboard.html", worker=worker, total_reviews=total_reviews, recent_requests=recent_requests, history_jobs=history_jobs, active_jobs_count=active_jobs_count)
+    # Calculate weekly earnings growth
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+    fourteen_days_ago = now - timedelta(days=14)
+    
+    current_week_earnings = 0.0
+    prev_week_earnings = 0.0
+    lifetime_earnings = 0.0
+    
+    for j in all_jobs:
+        if j["status"] == "completed" and j.get("created_at"):
+            try:
+                dt_str = j["created_at"].replace("Z", "+00:00")
+                dt = datetime.fromisoformat(dt_str)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                price = float(j.get("quoted_price") or 0)
+                net_price = price * 0.85 # Worker gets 85%
+                lifetime_earnings += net_price
+                
+                if dt >= seven_days_ago:
+                    current_week_earnings += net_price
+                elif dt >= fourteen_days_ago:
+                    prev_week_earnings += net_price
+            except ValueError:
+                pass
+                
+    if prev_week_earnings > 0:
+        earnings_growth = ((current_week_earnings - prev_week_earnings) / prev_week_earnings) * 100.0
+    elif current_week_earnings > 0:
+        earnings_growth = 100.0
+    else:
+        earnings_growth = 0.0
+    
+    return render_template("worker_dashboard.html", worker=worker, total_reviews=total_reviews, recent_requests=recent_requests, history_jobs=history_jobs, active_jobs_count=active_jobs_count, earnings_growth=earnings_growth, lifetime_earnings=lifetime_earnings)
 
 @app.route("/api/reviews", methods=["POST"])
 def submit_review():

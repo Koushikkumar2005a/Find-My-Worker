@@ -39,12 +39,17 @@
                 <span class="welcome-text">Welcome, {{ session.get('name') }} ({{ session.get('role').capitalize() }})</span>
                 {% if session.get('role') == 'user' %}
                     <a href="{{ url_for('user_dashboard') }}" class="btn btn-primary">Dashboard</a>
-                {% else %}
+                {% elif session.get('role') == 'worker' %}
                     <a href="{{ url_for('worker_dashboard') }}" class="btn btn-primary">Dashboard</a>
                 {% endif %}
+                
+                {% if session.get('role') != 'admin' %}
                 <a href="{{ url_for('view_profile', profile_id=session.get('user_id')) }}" class="btn btn-outline">My Profile</a>
+                {% endif %}
+                
                 <a href="{{ url_for('logout') }}" class="btn btn-outline" style="border-color: #ff4444; color: #ff4444;">Logout</a>
             {% else %}
+                <a href="{{ url_for('auth', action='login', type='admin') }}" class="btn btn-outline" style="border: none; color: var(--gray); font-size: 0.9rem;">Admin Login</a>
                 <a href="{{ url_for('auth', action='login') }}" class="btn btn-outline">Login</a>
                 <a href="{{ url_for('auth', action='register') }}" class="btn btn-primary">Register</a>
             {% endif %}

@@ -22,19 +22,21 @@
     let currentChatReceiverId = null;
     let receiverPublicKeyJwK = null;
     let supabaseSubscription = null;
+    let chatPollInterval = null;
     let keyPair = null;
     let displayedMessageIds = new Set();
 
     window.addEventListener('DOMContentLoaded', async () => {
         keyPair = await ChatCrypto.setupKeys(CURRENT_USER_ID);
         
-        document.querySelectorAll('.open-chat-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                const jobId = e.target.getAttribute('data-job-id');
-                const receiverId = e.target.getAttribute('data-participant-id');
-                const title = e.target.getAttribute('data-participant-name');
+        document.body.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.open-chat-btn');
+            if (btn) {
+                const jobId = btn.getAttribute('data-job-id');
+                const receiverId = btn.getAttribute('data-participant-id');
+                const title = btn.getAttribute('data-participant-name');
                 await openChat(jobId, receiverId, title);
-            });
+            }
         });
 
         document.getElementById('close-chat').addEventListener('click', closeChat);
@@ -64,26 +66,24 @@
         await fetchMessages();
         
         if (window.supabase_client) {
-            supabaseSubscription = window.supabase_client
-                .channel(`chat_${jobId}`)
-                .on('postgres_changes', { 
-                    event: 'INSERT', 
-                    schema: 'public', 
-                    table: 'messages',
-                    filter: `job_id=eq.${jobId}`
-                }, payload => {
-                    handleNewMessage(payload.new);
-                })
-                .subscribe((status) => {
-                    const statusEl = document.getElementById('chat-status');
-                    if (status === 'SUBSCRIBED') {
-                        if (statusEl) {
-                            statusEl.innerText = "Realtime Active";
-                            statusEl.style.color = "var(--primary-yellow)";
-                        }
-                    }
-                });
+            try {
+                supabaseSubscription = window.supabase_client
+                    .channel(`chat_${jobId}`)
+                    .on('postgres_changes', { 
+                        event: 'INSERT', 
+                        schema: 'public', 
+                        table: 'messages',
+                        filter: `job_id=eq.${jobId}`
+                    }, payload => {
+                        handleNewMessage(payload.new);
+                    })
+                    .subscribe();
+            } catch (err) { console.error("Realtime err:", err); }
         }
+
+        // Start fallback polling for robust Hot-Swapping of chat messages
+        if (chatPollInterval) clearInterval(chatPollInterval);
+        chatPollInterval = setInterval(fetchMessages, 2000);
 
         // Fetch Receiver's Public Key for sending new messages
         const res = await fetch(`/api/keys/${receiverId}`);
@@ -130,6 +130,10 @@
             window.supabase_client.removeChannel(supabaseSubscription);
             supabaseSubscription = null;
         }
+        if (chatPollInterval) {
+            clearInterval(chatPollInterval);
+            chatPollInterval = null;
+        }
     }
 
     async function fetchMessages() {
@@ -144,10 +148,15 @@
                 displayedMessageIds.add(msg.id);
 
                 let decryptedText = "";
-                if (msg.sender_id == CURRENT_USER_ID) {
-                    decryptedText = await ChatCrypto.decryptData(msg.encrypted_content_for_sender, keyPair.privateKey);
-                } else {
-                    decryptedText = await ChatCrypto.decryptData(msg.encrypted_content_for_receiver, keyPair.privateKey);
+                try {
+                    if (msg.sender_id == CURRENT_USER_ID) {
+                        decryptedText = await ChatCrypto.decryptData(msg.encrypted_content_for_sender, keyPair.privateKey);
+                    } else {
+                        decryptedText = await ChatCrypto.decryptData(msg.encrypted_content_for_receiver, keyPair.privateKey);
+                    }
+                } catch(e) {
+                    console.error("Decryption failed for message", msg.id, e);
+                    decryptedText = "[Encrypted Message]";
                 }
                 
                 const div = document.createElement('div');
@@ -181,7 +190,8 @@
                     enc_for_sender: encForSender
                 })
             });
-            // fetchMessages(); // No longer needed as Realtime will push the message back to us
+            // Instantly fetch newly sent messages locally 
+            fetchMessages(); 
         } catch(e) {
             console.error(e);
             alert("Failed to send encrypted message. Message might be too long.");
