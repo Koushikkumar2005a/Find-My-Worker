@@ -160,7 +160,13 @@
                 
                 const div = document.createElement('div');
                 div.className = `chat-message ${msg.sender_id == CURRENT_USER_ID ? 'sent' : 'received'}`;
-                div.innerText = decryptedText;
+                
+                if (decryptedText.includes("[Decryption Error")) {
+                    div.innerHTML = `<span style="opacity: 0.5; font-style: italic; font-size: 0.8rem;">🔒 Message from a previous session</span>`;
+                } else {
+                    div.innerText = decryptedText;
+                }
+                
                 container.appendChild(div);
             }
             container.scrollTop = container.scrollHeight;
