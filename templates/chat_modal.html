@@ -57,7 +57,7 @@
         document.getElementById('send-chat-btn').disabled = false;
         document.getElementById('chat-input').disabled = false;
         document.getElementById('chat-input').placeholder = "Type a message (E2E Encrypted)...";
-        document.getElementById('chat-title').innerHTML = `Chat with ${title} <span id="chat-status" style="font-size:0.7rem; color:var(--gray); margin-left:10px;">Connecting...</span>`;
+        document.getElementById('chat-title').innerHTML = `Chat with ${title} <span id="chat-status" style="font-size:0.7rem; color:var(--primary-yellow); margin-left:10px;">🟢 Secure Connection</span>`;
         document.getElementById('chat-messages-container').innerHTML = '';
         displayedMessageIds.clear();
         document.getElementById('chat-modal').classList.add('active');
@@ -85,8 +85,8 @@
         if (chatPollInterval) clearInterval(chatPollInterval);
         chatPollInterval = setInterval(fetchMessages, 2000);
 
-        // Fetch Receiver's Public Key for sending new messages
-        const res = await fetch(`/api/keys/${receiverId}`);
+        // Fetch Receiver's Public Key for sending new messages (Bypassing cache)
+        const res = await fetch(`/api/keys/${receiverId}?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
         if (data.success) {
             receiverPublicKeyJwK = JSON.parse(data.public_key);
@@ -142,7 +142,6 @@
         const data = await res.json();
         if (data.success) {
             const container = document.getElementById('chat-messages-container');
-            container.innerHTML = '';
             for (let msg of data.messages) {
                 if (displayedMessageIds.has(msg.id)) continue;
                 displayedMessageIds.add(msg.id);
@@ -156,7 +155,7 @@
                     }
                 } catch(e) {
                     console.error("Decryption failed for message", msg.id, e);
-                    decryptedText = "[Encrypted Message]";
+                    decryptedText = "[Old Message: Key Mismatch]";
                 }
                 
                 const div = document.createElement('div');

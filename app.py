@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import time
+import random
 from datetime import datetime, timedelta, timezone
 load_dotenv()
 
@@ -541,14 +542,29 @@ def update_job_status():
         if role == "user" and new_status not in ["accepted", "declined"]:
              return jsonify({"success": False, "error": "Invalid user action"}), 400
              
-        # Worker marking as complete
-        if role == "worker" and new_status == "completed" and job["status"] == "in_progress":
-            quoted_price = job.get("quoted_price") or 0
-            worker_resp = supabase.table("profiles").select("earnings").eq("id", user_id).execute()
-            current_earnings = worker_resp.data[0].get("earnings") or 0
-            supabase.table("profiles").update({"earnings": current_earnings + quoted_price}).eq("id", user_id).execute()
+        update_data = {"status": new_status}
+
+        # User accepting quote -> Generate OTPs
+        if role == "user" and new_status == "accepted":
+            update_data["start_otp"] = f"{random.randint(100000, 999999)}"
+            update_data["end_otp"] = f"{random.randint(100000, 999999)}"
+
+        # Worker validating OTPs to start/complete job
+        provided_otp = data.get("otp", "").strip()
+        if role == "worker":
+            if new_status == "in_progress":
+                if job.get("start_otp") and provided_otp != job.get("start_otp"):
+                    return jsonify({"success": False, "error": "Wrong OTP. Please check with customer."}), 400
+            elif new_status == "completed" and job["status"] == "in_progress":
+                if job.get("end_otp") and provided_otp != job.get("end_otp"):
+                    return jsonify({"success": False, "error": "Wrong OTP. Please check with customer."}), 400
+                
+                quoted_price = job.get("quoted_price") or 0
+                worker_resp = supabase.table("profiles").select("earnings").eq("id", user_id).execute()
+                current_earnings = worker_resp.data[0].get("earnings") or 0
+                supabase.table("profiles").update({"earnings": current_earnings + quoted_price}).eq("id", user_id).execute()
             
-        supabase.table("jobs").update({"status": new_status}).eq("id", job_id).execute()
+        supabase.table("jobs").update(update_data).eq("id", job_id).execute()
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

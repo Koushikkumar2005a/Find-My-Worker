@@ -59,6 +59,27 @@
     {% block content %}
     {% endblock %}
 
+    <!-- Global Toast Notification UI -->
+    <div id="global-toast" style="visibility: hidden; min-width: 250px; background-color: var(--primary-yellow); color: #000; text-align: center; border-radius: 4px; padding: 16px; position: fixed; z-index: 10000; left: 50%; bottom: 30px; transform: translateX(-50%); font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.3); opacity: 0; transition: opacity 0.5s, bottom 0.5s;">
+        Notification Message
+    </div>
+
+    <script>
+        window.showToast = function(message) {
+            const toast = document.getElementById("global-toast");
+            if (!toast) return;
+            toast.innerText = message;
+            toast.style.visibility = "visible";
+            toast.style.opacity = "1";
+            toast.style.bottom = "50px";
+            setTimeout(() => {
+                toast.style.opacity = "0";
+                toast.style.bottom = "30px";
+                setTimeout(() => toast.style.visibility = "hidden", 500);
+            }, 3000);
+        };
+    </script>
+
     <script>
         // Global Sidebar Toggle Logic
         const globalMenuToggle = document.getElementById('global-menu-toggle');

@@ -56,6 +56,7 @@
 
     <h3 id="active-bookings" style="margin-bottom: 1.5rem; scroll-margin-top: 100px;">Recent Requests</h3>
     
+    <div id="active-jobs-wrapper">
     {% if recent_requests|length == 0 %}
         <p style="color: var(--gray);">You have no pending or active requests right now.</p>
     {% else %}
@@ -108,8 +109,11 @@
             {% endfor %}
         </div>
     {% endif %}
+    </div>
 
     <h3 id="history" style="margin-top: 3rem; margin-bottom: 1.5rem; scroll-margin-top: 100px;">Booking History</h3>
+    
+    <div id="history-wrapper">
     {% if history_jobs|length == 0 %}
         <p style="color: var(--gray);">No past jobs found.</p>
     {% else %}
@@ -131,6 +135,7 @@
             {% endfor %}
         </div>
     {% endif %}
+    </div>
 
 </div>
 
@@ -179,6 +184,21 @@
     </div>
 </div>
 
+<!-- OTP Verification Modal -->
+<div id="otp-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+        <h3 id="otp-modal-title">Verify Start</h3>
+        <p style="color: var(--gray); font-size: 0.9rem; margin-bottom: 1.5rem;" id="otp-modal-desc">Please ask the customer for the 6-digit OTP to proceed.</p>
+        
+        <input type="text" id="otp-input" class="form-control" placeholder="Enter 6-digit OTP" maxlength="6" style="text-align: center; font-size: 1.5rem; letter-spacing: 4px; padding: 1rem;" autocomplete="off" />
+        
+        <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+            <button class="btn btn-primary" id="submit-otp-btn" style="flex: 1;">Verify & Proceed</button>
+            <button class="btn btn-outline" id="cancel-otp-btn" style="flex: 1;">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <script>
     // Real-Time Hot-Swapping Module
     async function syncDashboard() {
@@ -188,7 +208,7 @@
             const parser = new DOMParser();
             const newDoc = parser.parseFromString(text, 'text/html');
             
-            const containersToSync = ['recent-requests-list', 'history-list'];
+            const containersToSync = ['active-jobs-wrapper', 'history-wrapper'];
             containersToSync.forEach(id => {
                 const oldEl = document.getElementById(id);
                 const newEl = newDoc.getElementById(id);
@@ -203,6 +223,8 @@
     let currentQuoteJobId = null;
     let detailMap, detailMarker;
 
+    let pendingOtpAction = null; // {jobId, status, btnElement}
+
     // Event Delegation for dynamically Hot-Swapped UI components
     document.body.addEventListener('click', async (e) => {
         // Handle Action status buttons (Decline, Accept, Start, Complete)
@@ -210,6 +232,16 @@
         if (statusBtn) {
             const jobId = statusBtn.getAttribute('data-job-id');
             const status = statusBtn.getAttribute('data-status');
+            
+            // Require OTP for starting and completing
+            if (status === 'in_progress' || status === 'completed') {
+                pendingOtpAction = { jobId, status, btnElement: statusBtn };
+                document.getElementById('otp-modal-title').innerText = status === 'in_progress' ? "Start Task Verification" : "Complete Task Verification";
+                document.getElementById('otp-input').value = "";
+                document.getElementById('otp-modal').classList.add('active');
+                return;
+            }
+
             statusBtn.innerText = "Processing...";
             try {
                 const response = await fetch('/api/job/status', {
@@ -218,8 +250,10 @@
                     body: JSON.stringify({job_id: jobId, status: status})
                 });
                 const data = await response.json();
-                if(data.success) syncDashboard();
-                else { alert("Error: " + data.error); statusBtn.innerText = "Error"; }
+                if(data.success) {
+                    syncDashboard();
+                    if(window.showToast) window.showToast("Updated successfully");
+                } else { alert("Error: " + data.error); statusBtn.innerText = "Error"; }
             } catch(err) { alert("Network error."); statusBtn.innerText = "Error"; }
             return;
         }
@@ -263,6 +297,44 @@
             openRoute(routeBtn.dataset.lat, routeBtn.dataset.lng, routeBtn.dataset.userName);
             return;
         }
+    });
+
+    // OTP Modal Logic
+    document.getElementById('cancel-otp-btn').addEventListener('click', () => {
+        document.getElementById('otp-modal').classList.remove('active');
+        pendingOtpAction = null;
+    });
+
+    document.getElementById('submit-otp-btn').addEventListener('click', async (e) => {
+        if (!pendingOtpAction) return;
+        const otpValue = document.getElementById('otp-input').value.trim();
+        if (!otpValue || otpValue.length !== 6) {
+            alert("Please enter a valid 6-digit OTP.");
+            return;
+        }
+        
+        const btn = e.target;
+        btn.innerText = "Verifying...";
+        
+        try {
+            const response = await fetch('/api/job/status', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({job_id: pendingOtpAction.jobId, status: pendingOtpAction.status, otp: otpValue})
+            });
+            const data = await response.json();
+            if(data.success) {
+                document.getElementById('otp-modal').classList.remove('active');
+                syncDashboard();
+                if(window.showToast) window.showToast("OTP Verified successfully!");
+            } else { 
+                alert("Verification Failed: " + data.error); 
+            }
+        } catch(err) { 
+            alert("Network error during verification."); 
+        }
+        
+        btn.innerText = "Verify & Proceed";
     });
 
     document.getElementById('close-details-btn').addEventListener('click', () => {

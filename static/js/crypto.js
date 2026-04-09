@@ -52,7 +52,7 @@ class ChatCrypto {
             return new TextDecoder().decode(decrypted);
         } catch(e) {
             console.error("Decryption failed", e);
-            return "[Decryption Failed]";
+            return `[Decryption Error: ${e.message || e.name || "Unknown RSA-OAEP failure"}]`;
         }
     }
 

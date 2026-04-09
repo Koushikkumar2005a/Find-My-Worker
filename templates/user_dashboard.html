@@ -59,6 +59,7 @@
 
     <h3 id="active-bookings" style="margin-top: 3rem; margin-bottom: 1rem; scroll-margin-top: 100px;">Active Bookings</h3>
     
+    <div id="active-jobs-wrapper">
     {% if active_jobs|length == 0 %}
         <p style="color: var(--gray); margin-bottom: 2rem;">You have no active bookings.</p>
     {% else %}
@@ -73,7 +74,16 @@
                 </div>
                 <p style="font-size: 0.85rem; color: var(--gray);">Requested on: {{ job.created_at[:10] if job.created_at else 'N/A' }}</p>
                 <p style="font-size: 0.9rem; margin-top: 1rem;">{{ job.title }}</p>
-                
+                {% if job.status == 'accepted' or job.status == 'in_progress' %}
+                    <div style="background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid var(--primary-yellow);">
+                        <p style="font-size: 0.85rem; color: var(--gray); margin-bottom: 0.5rem;">Provide these OTPs to the worker:</p>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Start Task OTP: <strong style="color: var(--primary-yellow); letter-spacing: 2px;">{{ job.start_otp if job.start_otp else 'N/A' }}</strong></span>
+                            <span>End Task OTP: <strong style="color: var(--primary-yellow); letter-spacing: 2px;">{{ job.end_otp if job.end_otp else 'N/A' }}</strong></span>
+                        </div>
+                    </div>
+                {% endif %}
+
                 {% if job.status == 'accepted' or job.status == 'in_progress' %}
                     <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
                         <button class="btn btn-primary open-tracking-btn" data-job-id="{{ job.id }}" data-worker-name="{{ job.worker_name }}" style="flex: 1;">Track Worker</button>
@@ -93,8 +103,11 @@
             {% endfor %}
         </div>
     {% endif %}
+    </div>
 
     <h3 id="history" style="margin-top: 2rem; margin-bottom: 1rem; scroll-margin-top: 100px;">Booking History</h3>
+    
+    <div id="history-wrapper">
     {% if history_jobs|length == 0 %}
         <p style="color: var(--gray);">No past bookings found.</p>
     {% else %}
@@ -120,8 +133,9 @@
                 {% endif %}
             </div>
             {% endfor %}
-        </div>
-    {% endif %}
+            </div>
+        {% endif %}
+    </div>
 
 </div>
 
@@ -213,7 +227,7 @@
             const parser = new DOMParser();
             const newDoc = parser.parseFromString(text, 'text/html');
             
-            const containersToSync = ['active-jobs-list', 'history-grid'];
+            const containersToSync = ['active-jobs-wrapper', 'history-wrapper'];
             containersToSync.forEach(id => {
                 const oldEl = document.getElementById(id);
                 const newEl = newDoc.getElementById(id);
@@ -408,6 +422,7 @@
             if(data.success) {
                 document.getElementById('booking-modal').classList.remove('active');
                 syncDashboard();
+                if(window.showToast) window.showToast("Booking sent successfully!");
                 e.target.innerText = "Send Request";
             } else { alert("Error: " + data.error); e.target.innerText = "Send Request"; }
         } catch (err) { alert("Network error."); e.target.innerText = "Send Request"; }
