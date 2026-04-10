@@ -10,6 +10,9 @@
     <button class="sidebar-btn" onclick="scrollToSection('history')">
         <span>📜</span> History
     </button>
+    <button class="sidebar-btn" onclick="scrollToSection('reports')">
+        <span>🚩</span> My Reports
+    </button>
 {% endblock %}
 
 {% block content %}
@@ -19,16 +22,342 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
 <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+<!-- Razorpay SDK Removed -->
 
-<div class="dashboard-container">
-    <div class="dashboard-header">
-        <h2 style="margin: 0;">Find Your Pro worker</h2>
-        <div class="search-bar" style="margin-bottom: 0;">
-            <input type="text" id="worker-search" placeholder="Search for Electricians, Plumbers, Cleaners...">
+<style>
+    /* Mock Payment Modal Styles */
+    .mock-modal-overlay {
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.85);
+        z-index: 10000;
+        display: none;
+        justify-content: center;
+        align-items: center;
+        backdrop-filter: blur(8px);
+    }
+    .mock-modal-overlay.active { display: flex; }
+    
+    .mock-modal {
+        background: var(--dark-charcoal);
+        width: 100%;
+        max-width: 450px;
+        border-radius: 20px;
+        overflow: hidden;
+        border: 1px solid rgba(255,215,0,0.3);
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+    }
+    
+    .mock-modal-header {
+        background: var(--primary-yellow);
+        padding: 1.5rem;
+        color: black;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .mock-modal-body { padding: 1.5rem; }
+    
+    .payment-option {
+        background: rgba(255,255,255,0.05);
+        padding: 1rem;
+        border-radius: 12px;
+        margin-bottom: 0.75rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        transition: all 0.2s;
+        border: 1px solid transparent;
+    }
+    .payment-option:hover {
+        background: rgba(255,255,255,0.1);
+        border-color: var(--primary-yellow);
+    }
+    
+    .method-icon {
+        width: 40px; height: 40px;
+        background: var(--primary-yellow);
+        border-radius: 8px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 1.2rem;
+    }
+    
+    .mock-form-group { margin-bottom: 1rem; }
+    .mock-form-group label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; color: #aaa; }
+    .mock-input {
+        width: 100%;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        padding: 0.75rem;
+        border-radius: 8px;
+        color: white;
+        outline: none;
+    }
+    .mock-input:focus { border-color: var(--primary-yellow); }
+    
+    .upi-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+    .upi-app {
+        text-align: center;
+        cursor: pointer;
+        padding: 0.5rem;
+        border-radius: 8px;
+        transition: all 0.2s;
+    }
+    .upi-app:hover { background: rgba(255,215,0,0.1); }
+    .upi-app img { width: 100%; border-radius: 12px; margin-bottom: 0.5rem; }
+    .upi-app span { font-size: 0.8rem; }
+
+    .payment-loading {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.5rem;
+    }
+    .spinner {
+        width: 50px; height: 50px;
+        border: 4px solid rgba(255,215,0,0.1);
+        border-top: 4px solid var(--primary-yellow);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .qr-countdown-container {
+        margin-top: 1rem;
+        background: rgba(255,215,0,0.1);
+        border-radius: 8px;
+        height: 8px;
+        overflow: hidden;
+    }
+    .qr-countdown-bar {
+        height: 100%;
+        background: var(--primary-yellow);
+        width: 100%;
+        transition: width 10s linear;
+    }
+
+    .lock-overlay {
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.9);
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        padding: 2rem;
+    }
+    .lock-card {
+        background: var(--dark-charcoal);
+        padding: 2.5rem;
+        border-radius: 16px;
+        border: 2px solid var(--primary-yellow);
+        max-width: 500px;
+        box-shadow: 0 0 30px rgba(255, 215, 0, 0.2);
+    }
+    .extra-work-item {
+        background: rgba(255,255,255,0.05);
+        padding: 0.75rem;
+        border-radius: 8px;
+        margin-top: 0.5rem;
+        border-left: 3px solid var(--primary-yellow);
+    }
+    .bill-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+    }
+    .locked-content {
+        filter: blur(5px);
+        pointer-events: none;
+        user-select: none;
+    }
+
+    .negotiation-badge {
+        background: rgba(255, 136, 0, 0.2);
+        color: #ff8800;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: bold;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        border: 1px solid rgba(255, 136, 0, 0.3);
+    }
+</style>
+
+<!-- Mock Payment Modal -->
+<div class="mock-modal-overlay" id="mock-payment-modal">
+    <div class="mock-modal">
+        <div class="mock-modal-header">
+            <h4 style="margin: 0; font-weight: 700;">Secure Payment</h4>
+            <span style="cursor: pointer; font-size: 1.5rem;" onclick="closeMockPayment()">&times;</span>
+        </div>
+        
+        <div class="mock-modal-body">
+            <!-- Loading View -->
+            <div id="payment-loading-view" class="payment-loading">
+                <div class="spinner"></div>
+                <h4 id="loading-text">Processing Security...</h4>
+            </div>
+
+            <!-- View 1: Method Selection -->
+            <div id="method-selection-view">
+                <div style="text-align: center; margin-bottom: 1.5rem;">
+                    <h3 style="margin: 0; color: white;">₹<span id="mock-amount-display">0</span></h3>
+                    <p style="color: #aaa; font-size: 0.9rem;">Job ID: #<span id="mock-job-id-display">0</span></p>
+                </div>
+                <p style="font-weight: 600; margin-bottom: 1rem;">Select Payment Method</p>
+                <div class="payment-option" onclick="showPaymentStep('upi')">
+                    <div class="method-icon">📱</div>
+                    <div>
+                        <div style="font-weight: 600;">UPI</div>
+                        <div style="font-size: 0.8rem; color: #aaa;">GPay, PhonePe, Paytm, QR</div>
+                    </div>
+                </div>
+                <div class="payment-option" onclick="showPaymentStep('card')">
+                    <div class="method-icon">💳</div>
+                    <div>
+                        <div style="font-weight: 600;">Card</div>
+                        <div style="font-size: 0.8rem; color: #aaa;">Visa, Mastercard, RuPay</div>
+                    </div>
+                </div>
+                <div class="payment-option" onclick="showPaymentStep('netbanking')">
+                    <div class="method-icon">🏦</div>
+                    <div>
+                        <div style="font-weight: 600;">Netbanking</div>
+                        <div style="font-size: 0.8rem; color: #aaa;">All Indian Banks</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View 2: UPI Apps -->
+            <div id="upi-view" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                    <span style="cursor: pointer; font-size: 1.2rem;" onclick="showPaymentStep('methods')">←</span>
+                    <h4 style="margin: 0;">Select UPI App</h4>
+                </div>
+                <div class="upi-grid">
+                    <div class="upi-app" onclick="processMockFinal('UPI (GPay)')" style="background: white; padding: 0.5rem; border-radius: 12px;">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/f/f2/Google_Pay_Logo.svg" alt="GPay" style="height: 40px; width: auto; margin-bottom: 0.5rem;">
+                        <span style="color: black; font-weight: bold;">GPay</span>
+                    </div>
+                    <div class="upi-app" onclick="processMockFinal('UPI (PhonePe)')" style="background: white; padding: 0.75rem; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80px;">
+                        <img src="https://www.vectorlogo.zone/logos/phonepe/phonepe-ar21.svg" alt="PhonePe" style="max-width: 100%; height: 35px; object-fit: contain; margin-bottom: 0.5rem;">
+                        <span style="color: black; font-weight: bold; font-size: 0.7rem;">PhonePe</span>
+                    </div>
+                    <div class="upi-app" onclick="processMockFinal('UPI (Paytm)')" style="background: white; padding: 0.5rem; border-radius: 12px;">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/2/24/Paytm_Logo_%28standalone%29.svg" alt="Paytm" style="height: 40px; width: auto; margin-bottom: 0.5rem;">
+                        <span style="color: black; font-weight: bold;">Paytm</span>
+                    </div>
+                </div>
+                <div id="qr-scan-placeholder" style="margin-top: 2rem; border: 2px dashed var(--primary-yellow); padding: 1.5rem; text-align: center; border-radius: 12px; cursor: pointer;" onclick="startQRScan()">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔳</div>
+                    <p style="margin: 0; font-weight: 600;">Scan QR Code</p>
+                </div>
+
+                <!-- Active QR View -->
+                <div id="active-qr-view" style="display: none; text-align: center; margin-top: 1rem;">
+                    <div style="background: white; padding: 1.5rem; border-radius: 12px; display: inline-block;">
+                        <img id="mock-qr-img" src="" alt="UPI QR" style="width: 200px; height: 200px;">
+                    </div>
+                    <p style="margin-top: 1rem; color: #aaa;">Scan with any UPI App (GPay, PhonePe, etc.)</p>
+                    <div class="qr-countdown-container">
+                        <div id="qr-progress-bar" class="qr-countdown-bar"></div>
+                    </div>
+                    <p id="qr-timer-text" style="font-size: 0.8rem; margin-top: 0.5rem; color: var(--primary-yellow);">Awaiting payment... (10s)</p>
+                </div>
+            </div>
+
+            <!-- View 3: Card Form -->
+            <div id="card-view" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                    <span style="cursor: pointer; font-size: 1.2rem;" onclick="showPaymentStep('methods')">←</span>
+                    <h4 style="margin: 0;">Card Details</h4>
+                </div>
+                <div class="mock-form-group">
+                    <label>Card Number</label>
+                    <input type="text" class="mock-input" placeholder="4580 00XX XXXX 1234">
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="mock-form-group">
+                        <label>Expiry (MM/YY)</label>
+                        <input type="text" class="mock-input" placeholder="09/28">
+                    </div>
+                    <div class="mock-form-group">
+                        <label>CVV</label>
+                        <input type="password" class="mock-input" placeholder="***">
+                    </div>
+                </div>
+                <div class="mock-form-group">
+                    <label>Cardholder Name</label>
+                    <input type="text" class="mock-input" placeholder="Enter name on card">
+                </div>
+                <button class="btn btn-primary" style="width: 100%; margin-top: 1rem;" onclick="processMockFinal('Card')">Pay ₹<span class="pay-amount-label">0</span></button>
+            </div>
+
+            <!-- View 4: Netbanking -->
+            <div id="netbanking-view" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                    <span style="cursor: pointer; font-size: 1.2rem;" onclick="showPaymentStep('methods')">←</span>
+                    <h4 style="margin: 0;">Select Bank</h4>
+                </div>
+                <div class="mock-form-group">
+                    <select class="mock-input">
+                        <option>State Bank of India</option>
+                        <option>HDFC Bank</option>
+                        <option>ICICI Bank</option>
+                        <option>Axis Bank</option>
+                        <option>Punjab National Bank</option>
+                        <option>Bank of Baroda</option>
+                    </select>
+                </div>
+                <div class="mock-form-group">
+                    <label>Username</label>
+                    <input type="text" class="mock-input" placeholder="Bank User ID">
+                </div>
+                <div class="mock-form-group">
+                    <label>Password</label>
+                    <input type="password" class="mock-input" placeholder="••••••••">
+                </div>
+                <button class="btn btn-primary" style="width: 100%; margin-top: 1rem;" onclick="processMockFinal('Netbanking')">Login & Pay</button>
+            </div>
         </div>
     </div>
+</div>
 
-    <h3 id="active-workers" style="margin-bottom: 1rem; scroll-margin-top: 100px;">Available Workers</h3>
+{% if is_locked %}
+<div class="lock-overlay" id="app-lock-overlay">
+    <div class="lock-card">
+        <h1 style="color: var(--primary-yellow); margin-bottom: 1rem;">🔏 App Locked</h1>
+        <p style="font-size: 1.1rem; margin-bottom: 2rem;">Please complete your pending payment to continue using Find My Worker features.</p>
+        <button class="btn btn-primary" onclick="viewPendingBill()" style="width: 100%;">View Pending Bill</button>
+    </div>
+</div>
+{% endif %}
+
+<div class="dashboard-container">
+    <div id="lockable-header" class="{% if is_locked %}locked-content{% endif %}">
+        <div class="dashboard-header">
+            <h2 style="margin: 0;">Find Your Pro worker</h2>
+            <div class="search-bar" style="margin-bottom: 0;">
+                <input type="text" id="worker-search" placeholder="Search for Electricians, Plumbers, Cleaners...">
+            </div>
+        </div>
+
+        <h3 id="active-workers" style="margin-bottom: 1rem; scroll-margin-top: 100px;">Available Workers</h3>
+    </div>
     <div class="grid">
         {% for worker in workers %}
         <div class="card worker-card">
@@ -74,6 +403,16 @@
                 </div>
                 <p style="font-size: 0.85rem; color: var(--gray);">Requested on: {{ job.created_at[:10] if job.created_at else 'N/A' }}</p>
                 <p style="font-size: 0.9rem; margin-top: 1rem;">{{ job.title }}</p>
+
+                {# Initialize namespace and calculate extras for all job types #}
+                {% set ns = namespace(found_extras=false, total_extras=0) %}
+                {% for ew in extra_works if ew.job_id == job.id %}
+                    {% set ns.found_extras = true %}
+                    {% if ew.status == 'approved' %}
+                        {% set ns.total_extras = ns.total_extras + ew.amount %}
+                    {% endif %}
+                {% endfor %}
+
                 {% if job.status == 'accepted' or job.status == 'in_progress' %}
                     <div style="background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid var(--primary-yellow);">
                         <p style="font-size: 0.85rem; color: var(--gray); margin-bottom: 0.5rem;">Provide these OTPs to the worker:</p>
@@ -90,14 +429,102 @@
                     </div>
                 {% endif %}
 
-                {% if job.status == 'quoted' %}
+                {% if job.status == 'pending' %}
+                    <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                        <button class="btn btn-outline btn-sm open-report-btn" data-job-id="{{ job.id }}" data-worker-id="{{ job.worker_id }}" data-worker-name="{{ job.worker_name }}" style="flex: 1; border-color: #ff4444; color: #ff4444;">Report worker</button>
+                    </div>
+                {% elif job.status == 'quoted' %}
                     <p style="color: var(--primary-yellow); font-weight: bold; margin-top: 1rem;">Quoted Price: ₹{{ job.quoted_price }}</p>
-                    <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                        <button class="btn btn-primary btn-sm user-status-btn" data-job-id="{{ job.id }}" data-status="accepted" style="flex:1; padding: 0.5rem; font-size: 0.85rem;">Accept Quote</button>
-                        <button class="btn btn-outline btn-sm user-status-btn" data-job-id="{{ job.id }}" data-status="declined" style="flex:1; padding: 0.5rem; font-size: 0.85rem;">Cancel</button>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;">
+                        <button class="btn btn-primary btn-sm user-status-btn" data-job-id="{{ job.id }}" data-status="accepted" style="width: 100%; padding: 0.75rem; font-weight: bold;">Accept Quote</button>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-outline btn-sm bargain-btn" 
+                                    data-job-id="{{ job.id }}" 
+                                    data-current-price="{{ job.quoted_price }}"
+                                    style="flex: 2; border-color: #ff8800; color: #ff8800;">Bargain / Negotiation</button>
+                            <button class="btn btn-outline btn-sm user-status-btn" data-job-id="{{ job.id }}" data-status="declined" style="flex: 1; border-color: #ff4444; color: #ff4444;">Cancel</button>
+                        </div>
+                    </div>
+                {% endif %}
+
+                {% if job.status == 'accepted' or job.status == 'in_progress' or job.status == 'payment_pending' %}
+                    <!-- Extra Work Section -->
+                    <div class="mt-4" style="background: rgba(0,0,0,0.1); padding: 1rem; border-radius: 8px;">
+                        <h5 style="color: var(--primary-yellow); font-size: 0.9rem; margin-bottom: 0.5rem;">Extra Work Requests</h5>
+                        {% for ew in extra_works if ew.job_id == job.id %}
+                            <div class="extra-work-item">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="font-size: 0.85rem;">{{ ew.description }}</span>
+                                    <span style="color: var(--primary-yellow); font-weight: bold;">₹{{ ew.amount }}</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                                    <span style="font-size: 0.75rem; color: var(--gray);">Status: {{ ew.status }}</span>
+                                    {% if ew.status == 'pending' %}
+                                        <div style="display: flex; gap: 0.5rem;">
+                                            <button class="btn btn-primary btn-sm ew-status-btn" data-extra-id="{{ ew.id }}" data-status="approved" style="padding: 2px 8px; font-size: 0.7rem;">Approve</button>
+                                            <button class="btn btn-outline btn-sm ew-status-btn" data-extra-id="{{ ew.id }}" data-status="rejected" style="padding: 2px 8px; font-size: 0.7rem; border-color: #ff4444; color: #ff4444;">Reject</button>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                        {% if not ns.found_extras %}
+                            <p style="font-size: 0.8rem; color: var(--gray);">No extra work requested yet.</p>
+                        {% endif %}
+                    </div>
+                {% endif %}
+
+                {% if job.status == 'payment_pending' %}
+                    <!-- Final Bill Section -->
+                    <div class="mt-4" style="background: rgba(255, 215, 0, 0.1); padding: 1rem; border-radius: 8px; border: 1px solid var(--primary-yellow);">
+                        <h4 style="color: var(--primary-yellow); margin-bottom: 1rem;">Final Bill Details</h4>
+                        <div class="bill-row">
+                            <span>Base Work Amount:</span>
+                            <span>₹{{ job.quoted_price }}</span>
+                        </div>
+                        <div class="bill-row">
+                            <span>Approved Extra Work:</span>
+                            <span>₹{{ ns.total_extras }}</span>
+                        </div>
+                        <hr style="border-color: rgba(255,255,255,0.1); margin: 0.5rem 0;">
+                        <div class="bill-row" style="font-size: 1.1rem; font-weight: bold; color: var(--primary-yellow);">
+                            <span>Total Amount:</span>
+                            <span>₹{{ job.quoted_price + ns.total_extras }}</span>
+                        </div>
+                        <p style="font-size: 0.75rem; color: var(--gray); margin-top: 0.5rem; text-align: center;">🛡️ Secured In-App Payment Required</p>
+                        <button class="btn btn-primary pay-now-btn" 
+                                data-job-id="{{ job.id }}" 
+                                data-total="{{ job.quoted_price + ns.total_extras }}"
+                                style="width: 100%; margin-top: 1rem; font-weight: bold;">
+                            Pay Now
+                        </button>
+                    </div>
+                {% elif job.status == 'negotiating' %}
+                    <div style="background: rgba(0,0,0,0.1); padding: 1rem; border-radius: 12px; margin-top: 1rem;">
+                        <div class="negotiation-badge">
+                            <span>🤝</span> Negotiation Active
+                        </div>
+                        <div style="margin-top: 1rem; text-align: center;">
+                            {% if job.bargain_by == 'user' %}
+                                <p style="color: var(--gray);">Sent your offer for <span style="color: white; font-weight: bold;">₹{{ job.bargain_price }}</span></p>
+                                <p style="font-size: 0.8rem; color: var(--gray);">Waiting for worker response...</p>
+                            {% else %}
+                                <p style="color: white;">Worker counter-offered <span style="color: var(--primary-yellow); font-weight: bold; font-size: 1.2rem;">₹{{ job.bargain_price }}</span></p>
+                                <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                                    <button class="btn btn-primary btn-sm accept-negotiation-btn" data-job-id="{{ job.id }}" style="flex:1;">Accept Offer</button>
+                                    <button class="btn btn-outline btn-sm bargain-btn" 
+                                            data-job-id="{{ job.id }}" 
+                                            data-current-price="{{ job.bargain_price }}"
+                                            style="flex:1; border-color: #ff8800; color: #ff8800;">Counter</button>
+                                </div>
+                            {% endif %}
+                        </div>
                     </div>
                 {% elif job.status == 'accepted' or job.status == 'in_progress' %}
-                    <button class="btn btn-outline btn-sm open-chat-btn" data-job-id="{{ job.id }}" data-participant-id="{{ job.worker_id }}" data-participant-name="{{ job.worker_name }}" style="margin-top: 0.5rem; width: 100%;">Chat with {{ job.worker_name }}</button>
+                    <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                        <button class="btn btn-outline btn-sm open-chat-btn" data-job-id="{{ job.id }}" data-participant-id="{{ job.worker_id }}" data-participant-name="{{ job.worker_name }}" style="flex: 2;">Chat with {{ job.worker_name }}</button>
+                        <button class="btn btn-outline btn-sm open-report-btn" data-job-id="{{ job.id }}" data-worker-id="{{ job.worker_id }}" data-worker-name="{{ job.worker_name }}" style="flex: 1; border-color: #ff4444; color: #ff4444;">Report</button>
+                    </div>
                 {% endif %}
             </div>
             {% endfor %}
@@ -131,6 +558,13 @@
                 {% elif job.is_rated %}
                     <p style="font-size: 0.8rem; color: var(--primary-yellow); margin-top: 0.5rem;">✓ Rated</p>
                 {% endif %}
+                <button class="btn btn-outline btn-sm open-report-btn" 
+                        data-job-id="{{ job.id }}" 
+                        data-worker-id="{{ job.worker_id }}"
+                        data-worker-name="{{ job.worker_name }}"
+                        style="width: 100%; margin-top: 0.5rem; padding: 0.4rem; font-size: 0.8rem; border-color: #ff4444; color: #ff4444;">
+                    Report Worker
+                </button>
             </div>
             {% endfor %}
             </div>
@@ -218,7 +652,65 @@
     </div>
 </div>
 
+<!-- Report Modal -->
+<div id="report-modal" class="modal-overlay">
+    <div class="modal-content">
+        <h3 style="color: #ff4444;">Report Worker</h3>
+        <p style="color: var(--gray); margin-bottom: 1rem;">Reporting: <span id="report-worker-name" style="color: var(--primary-yellow);"></span></p>
+        
+        <div class="form-group">
+            <label class="form-label">Reason for Reporting</label>
+            <select id="report-reason" class="form-control" style="background: rgba(0,0,0,0.2); color: white;">
+                <option value="" disabled selected>Select a reason...</option>
+                <option value="Harassment">Harassment / Abusive Behavior</option>
+                <option value="No-show">Worker didn't show up</option>
+                <option value="Poor Service">Extremely poor quality of work</option>
+                <option value="Theft">Theft or Damage to property</option>
+                <option value="Overcharging">Asking for more than quoted price</option>
+                <option value="Inappropriate">Inappropriate behavior/comments</option>
+                <option value="Other">Other</option>
+            </select>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label class="form-label">Additional Details</label>
+            <textarea id="report-description" class="form-control" rows="4" placeholder="Please provide more details about the incident..."></textarea>
+        </div>
+
+        <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+            <button class="btn btn-primary" id="submit-report-btn" style="flex: 1; background: #ff4444; border-color: #ff4444;">Submit Report</button>
+            <button class="btn btn-outline" id="close-report-btn" style="flex: 1;">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bargain Modal -->
+<div id="bargain-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+        <h3 style="color: #ff8800;">🤝 Bargain Price</h3>
+        <p style="color: var(--gray); font-size: 0.9rem; margin-bottom: 1.5rem;">Enter your numeric offer below. No text allowed.</p>
+        
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+            <label class="form-label" style="display: block; text-align: left;">New Amount (₹)</label>
+            <input type="number" id="bargain-input" class="form-control" placeholder="e.g. 450" style="font-size: 1.5rem; text-align: center; color: var(--primary-yellow);">
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <button class="btn btn-primary" id="submit-bargain-btn" style="flex: 2; background: #ff8800; border-color: #ff8800;">Send Offer</button>
+            <button class="btn btn-outline" onclick="document.getElementById('bargain-modal').style.display='none'" style="flex: 1;">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <script>
+    // State Management
+    let currentReviewJobId = null;
+    let currentReviewWorkerId = null;
+    let currentBookingWorkerId = null;
+    let currentReportJobId = null;
+    let currentReportWorkerId = null;
+    let activeBargainId = null;
+
     // Real-Time Hot-Swapping Module
     async function syncDashboard() {
         try {
@@ -296,17 +788,241 @@
             document.getElementById('review-modal').classList.add('active');
             return;
         }
+
+        // Handle Report Opening
+        const reportBtn = e.target.closest('.open-report-btn');
+        if (reportBtn) {
+            currentReportJobId = reportBtn.getAttribute('data-job-id');
+            currentReportWorkerId = reportBtn.getAttribute('data-worker-id');
+            document.getElementById('report-worker-name').innerText = reportBtn.getAttribute('data-worker-name');
+            document.getElementById('report-modal').classList.add('active');
+            return;
+        }
+
+        // Handle Extra Work Status Update
+        const ewBtn = e.target.closest('.ew-status-btn');
+        if (ewBtn) {
+            const extraId = ewBtn.getAttribute('data-extra-id');
+            const nextStatus = ewBtn.getAttribute('data-status');
+            ewBtn.innerText = "Processing...";
+            try {
+                const response = await fetch('/api/extra_work/status', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({extra_id: extraId, status: nextStatus})
+                });
+                const data = await response.json();
+                if(data.success) syncDashboard();
+                else alert("Error: " + data.error);
+            } catch(err) { alert("Network error."); }
+            return;
+        }
+
+        // Handle Bargain Button
+        const negBtn = e.target.closest('.bargain-btn');
+        if (negBtn) {
+            activeBargainId = negBtn.getAttribute('data-job-id');
+            const currentPrice = negBtn.getAttribute('data-current-price');
+            document.getElementById('bargain-input').value = currentPrice;
+            document.getElementById('bargain-modal').style.display = 'flex';
+            return;
+        }
+
+        // Handle Accept Negotiation Offer
+        const accNegBtn = e.target.closest('.accept-negotiation-btn');
+        if (accNegBtn) {
+            const jobId = accNegBtn.getAttribute('data-job-id');
+            acceptNegotiation(jobId);
+            return;
+        }
     });
 
-    let currentReviewJobId = null;
-    let currentReviewWorkerId = null;
-    let currentBookingWorkerId = null;
+    // Bargain Submission Logic
+    document.getElementById('submit-bargain-btn')?.addEventListener('click', async () => {
+        const price = document.getElementById('bargain-input').value;
+        if (!price || isNaN(price)) {
+            alert("Please enter a valid numeric amount.");
+            return;
+        }
 
-    document.getElementById('close-review-btn').addEventListener('click', () => {
+        const btn = document.getElementById('submit-bargain-btn');
+        btn.innerText = "Sending...";
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/job/status', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    job_id: activeBargainId,
+                    status: 'negotiating',
+                    price: parseFloat(price)
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (window.showToast) window.showToast("Offer Sent Successfully!");
+                document.getElementById('bargain-modal').style.display = 'none';
+                syncDashboard();
+            } else {
+                alert("Negotiation failed: " + data.error);
+            }
+        } catch (err) {
+            alert("Network error.");
+        }
+        btn.innerText = "Send Offer";
+        btn.disabled = false;
+    });
+
+    async function acceptNegotiation(jobId) {
+        try {
+            const res = await fetch('/api/job/negotiate/accept', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({job_id: jobId})
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (window.showToast) window.showToast("Price Agreed! Quote Updated.");
+                syncDashboard();
+            }
+        } catch (err) { alert("Error accepting offer."); }
+    }
+
+    // Mock Payment Gateway Logic
+    let currentMockJobId = null;
+    let currentMockAmount = 0;
+
+    window.openMockPayment = async (jobId, totalAmount) => {
+        currentMockJobId = jobId;
+        currentMockAmount = totalAmount;
+        document.getElementById('mock-amount-display').innerText = totalAmount.toLocaleString('en-IN');
+        document.querySelectorAll('.pay-amount-label').forEach(el => el.innerText = totalAmount.toLocaleString('en-IN'));
+        
+        // Call backend to initialize the simulated record
+        try {
+            await fetch('/api/payment/init-mock', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({job_id: jobId})
+            });
+        } catch(e) {}
+
+        showPaymentStep('methods');
+        document.getElementById('mock-payment-modal').classList.add('active');
+    };
+
+    window.closeMockPayment = () => {
+        document.getElementById('mock-payment-modal').classList.remove('active');
+    };
+
+    window.showPaymentStep = (step) => {
+        const views = ['payment-loading-view', 'method-selection-view', 'upi-view', 'card-view', 'netbanking-view'];
+        views.forEach(v => document.getElementById(v).style.display = 'none');
+        
+        switch(step) {
+            case 'methods': document.getElementById('method-selection-view').style.display = 'block'; break;
+            case 'upi': document.getElementById('upi-view').style.display = 'block'; break;
+            case 'card': document.getElementById('card-view').style.display = 'block'; break;
+            case 'netbanking': document.getElementById('netbanking-view').style.display = 'block'; break;
+            case 'loading': document.getElementById('payment-loading-view').style.display = 'flex'; break;
+        }
+    };
+
+    window.processMockFinal = async (method) => {
+        showPaymentStep('loading');
+        document.getElementById('loading-text').innerText = "Validating " + method + "...";
+        
+        setTimeout(async () => {
+            document.getElementById('loading-text').innerText = "Finalizing Transaction...";
+            try {
+                const res = await fetch('/api/payment/simulate-success', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({job_id: currentMockJobId, method: method})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('loading-text').innerText = "Payment Successful!";
+                    if (window.showToast) window.showToast("Payment Successful!");
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    alert("Payment Failed: " + data.error);
+                    showPaymentStep('methods');
+                }
+            } catch (err) {
+                alert("Network error.");
+                showPaymentStep('methods');
+            }
+        }, 2000);
+    };
+
+    window.startQRScan = () => {
+        const qrImg = document.getElementById('mock-qr-img');
+        const amount = currentMockAmount;
+        // Generate a real-looking UPI QR code for the demo
+        qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=mock@upi&pn=FindMyWorker&am=${amount}&cu=INR`;
+        
+        document.getElementById('qr-scan-placeholder').style.display = 'none';
+        document.getElementById('active-qr-view').style.display = 'block';
+        
+        // Start 10s countdown
+        const progressBar = document.getElementById('qr-progress-bar');
+        const timerText = document.getElementById('qr-timer-text');
+        
+        setTimeout(() => progressBar.style.width = '0%', 100);
+        
+        let seconds = 10;
+        const interval = setInterval(() => {
+            seconds--;
+            timerText.innerText = `Awaiting payment... (${seconds}s)`;
+            if (seconds <= 0) {
+                clearInterval(interval);
+                processMockFinal('QR Scan');
+            }
+        }, 1000);
+    };
+
+    // Handle Pending Bill view from Lock
+    window.viewPendingBill = () => {
+        document.getElementById('app-lock-overlay').style.display='none'; 
+        document.getElementById('lockable-header').classList.remove('locked-content'); 
+        document.getElementById('lockable-workers').classList.remove('locked-content');
+        
+        scrollToSection('active-bookings');
+        
+        // Find the pay now button and trigger it after a short delay
+        setTimeout(() => {
+            const payBtn = document.querySelector('.pay-now-btn');
+            if (payBtn) payBtn.click();
+        }, 800);
+    };
+
+    // Replace the old button handler to use our new Mock Gateway
+    document.addEventListener('click', async (e) => {
+        const payBtn = e.target.closest('.pay-now-btn');
+        if (payBtn) {
+            const jobId = payBtn.getAttribute('data-job-id');
+            const total = parseFloat(payBtn.getAttribute('data-total'));
+            openMockPayment(jobId, total);
+            return;
+        }
+        
+        // Remove old simulate-pay-btn handler as it's merged into the gateway
+        if (e.target.closest('.simulate-pay-btn')) {
+            const jobId = e.target.getAttribute('data-job-id');
+            const total = 500; // fallback
+            openMockPayment(jobId, total);
+            return;
+        }
+    });
+
+    // Review Modal Handlers
+    document.getElementById('close-review-btn')?.addEventListener('click', () => {
         document.getElementById('review-modal').classList.remove('active');
     });
 
-    document.getElementById('submit-review-btn').addEventListener('click', async (e) => {
+    document.getElementById('submit-review-btn')?.addEventListener('click', async (e) => {
         const starInput = document.querySelector('input[name="rev-rating"]:checked');
         if(!starInput) { alert("Please select a star rating."); return; }
         e.target.innerText = "Submitting...";
@@ -326,11 +1042,40 @@
             if(data.success) {
                 document.getElementById('review-modal').classList.remove('active');
                 syncDashboard();
-            } else {
-                alert("Error: " + data.error);
-            }
+            } else { alert("Error: " + data.error); }
         } catch (err) { alert("Network error."); }
         e.target.innerText = "Submit Review";
+    });
+
+    // Report Modal Handlers
+    document.getElementById('close-report-btn')?.addEventListener('click', () => {
+        document.getElementById('report-modal').classList.remove('active');
+    });
+
+    document.getElementById('submit-report-btn')?.addEventListener('click', async (e) => {
+        const reason = document.getElementById('report-reason').value;
+        const description = document.getElementById('report-description').value;
+        if (!reason) { alert("Please select a reason for reporting."); return; }
+        
+        e.target.innerText = "Reporting...";
+        try {
+            const response = await fetch('/api/report_worker', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    job_id: currentReportJobId,
+                    worker_id: currentReportWorkerId,
+                    reason: reason,
+                    description: description
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                document.getElementById('report-modal').classList.remove('active');
+                if (window.showToast) window.showToast("Report submitted successfully.");
+            } else { alert("Error: " + data.error); }
+        } catch (err) { alert("Network error."); }
+        e.target.innerText = "Submit Report";
     });
 
     // Leaflet Integration for Booking
@@ -412,7 +1157,6 @@
         formData.append('description', document.getElementById('book-desc').value);
         formData.append('lat', selectedLat);
         formData.append('lng', selectedLng);
-        
         const photoInput = document.getElementById('book-photo');
         if (photoInput && photoInput.files.length > 0) formData.append('photo', photoInput.files[0]);
         
@@ -423,9 +1167,9 @@
                 document.getElementById('booking-modal').classList.remove('active');
                 syncDashboard();
                 if(window.showToast) window.showToast("Booking sent successfully!");
-                e.target.innerText = "Send Request";
-            } else { alert("Error: " + data.error); e.target.innerText = "Send Request"; }
-        } catch (err) { alert("Network error."); e.target.innerText = "Send Request"; }
+            } else { alert("Error: " + data.error); }
+        } catch (err) { alert("Network error."); }
+        e.target.innerText = "Send Request";
     });
 
     const searchInput = document.getElementById('worker-search');

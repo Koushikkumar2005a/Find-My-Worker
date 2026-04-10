@@ -10,6 +10,9 @@
     <button class="sidebar-btn" onclick="scrollToSection('users')">
         <span>👤</span> Registered Users
     </button>
+    <button class="sidebar-btn" onclick="scrollToSection('reports-section')">
+        <span>🚩</span> User Reports
+    </button>
 {% endblock %}
 
 {% block content %}
@@ -70,6 +73,51 @@
                 {% if worker_stats|length == 0 %}
                 <tr>
                     <td colspan="5" style="padding: 1rem; text-align: center; color: var(--gray);">No workers registered yet.</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <h3 id="reports-section" style="margin-top: 2rem; margin-bottom: 1.5rem; scroll-margin-top: 100px;">User Reports & Complaints</h3>
+    <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 3rem; border: 1px solid rgba(255, 68, 68, 0.3);">
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead>
+                <tr style="background: rgba(255, 68, 68, 0.1); border-bottom: 1px solid var(--glass-border);">
+                    <th style="padding: 1rem; color: var(--gray);">Reported Worker</th>
+                    <th style="padding: 1rem; color: var(--gray);">By User</th>
+                    <th style="padding: 1rem; color: var(--gray);">Reason</th>
+                    <th style="padding: 1rem; color: var(--gray);">Description</th>
+                    <th style="padding: 1rem; color: var(--gray); text-align: center;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in reports %}
+                <tr style="border-bottom: 1px solid var(--glass-border);">
+                    <td style="padding: 1rem; color: white;">
+                        <strong>{{ r.worker_name }}</strong>
+                        <div style="font-size: 0.75rem; color: var(--gray);">Job: {{ r.job_title }}</div>
+                    </td>
+                    <td style="padding: 1rem; color: var(--gray); font-size: 0.9rem;">{{ r.user_name }}</td>
+                    <td style="padding: 1rem;">
+                        <span style="padding: 2px 8px; border-radius: 4px; background: #ff4444; color: white; font-size: 0.75rem;">{{ r.reason }}</span>
+                    </td>
+                    <td style="padding: 1rem; color: var(--gray); font-size: 0.85rem; max-width: 300px;">
+                        {{ r.description or 'No description provided' }}
+                    </td>
+                    <td style="padding: 1rem; text-align: center;">
+                        <button class="btn btn-outline btn-sm delete-profile-btn" 
+                                data-profile-id="{{ r.worker_id }}" 
+                                data-profile-name="{{ r.worker_name }}" 
+                                style="border-color: #ff4444; color: #ff4444; padding: 0.4rem 0.8rem; font-size: 0.8rem;">
+                            Delete Worker
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if reports|length == 0 %}
+                <tr>
+                    <td colspan="5" style="padding: 1rem; text-align: center; color: var(--gray);">No reports found.</td>
                 </tr>
                 {% endif %}
             </tbody>

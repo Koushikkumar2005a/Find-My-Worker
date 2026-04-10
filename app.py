@@ -6,6 +6,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import time
 import random
+import uuid
 from datetime import datetime, timedelta, timezone
 load_dotenv()
 
@@ -31,6 +32,17 @@ if supabase_url and supabase_key:
         print("Supabase connected.")
     except Exception as e:
         print(f"Failed to initialize supabase: {e}")
+
+def is_user_locked(user_id):
+    """Checks if a user has any jobs in 'payment_pending' status."""
+    if not supabase:
+        return False
+    # Only users can be locked from booking/messaging
+    try:
+        resp = supabase.table("jobs").select("id").eq("user_id", user_id).eq("status", "payment_pending").execute()
+        return len(resp.data) > 0
+    except:
+        return False
 
 def upload_to_supabase(file, bucket="uploads"):
     """Helper to upload a file to Supabase Storage and return its public URL."""
@@ -191,6 +203,29 @@ def admin_dashboard():
                 "earnings": w_earnings
             })
             
+    # Fetch reports and map names
+    reports_resp = supabase.table("reports").select("*").order("created_at", desc=True).execute()
+    reports = reports_resp.data
+    
+    if reports:
+        u_ids = [r["user_id"] for r in reports]
+        w_ids = [r["worker_id"] for r in reports]
+        j_ids = [r["job_id"] for r in reports]
+        
+        # Profile lookup
+        unique_p_ids = list(set(u_ids + w_ids))
+        related_profiles = supabase.table("profiles").select("id, name").in_("id", unique_p_ids).execute()
+        profile_map = {p["id"]: p["name"] for p in related_profiles.data}
+        
+        # Job lookup
+        related_jobs = supabase.table("jobs").select("id, title").in_("id", list(set(j_ids))).execute()
+        job_map = {j["id"]: j["title"] for j in related_jobs.data}
+        
+        for r in reports:
+            r["user_name"] = profile_map.get(r["user_id"], "Unknown User")
+            r["worker_name"] = profile_map.get(r["worker_id"], "Unknown Worker")
+            r["job_title"] = job_map.get(r["job_id"], "Unknown Job")
+
     return render_template("admin_dashboard.html", 
         total_users=total_users, 
         total_workers=total_workers, 
@@ -198,7 +233,8 @@ def admin_dashboard():
         admin_earnings=admin_earnings, 
         total_worker_net=total_worker_net,
         worker_stats=worker_stats,
-        all_profiles=profiles)
+        all_profiles=profiles,
+        reports=reports)
 
 @app.route("/api/admin/delete_profile", methods=["POST"])
 def admin_delete_profile():
@@ -232,6 +268,33 @@ def user_dashboard():
     if session.get("role") != "user":
         return redirect(url_for("home"))
     
+    user_id = session.get("user_id")
+    
+    # Handle Razorpay Payment Link Callback
+    plink_id = request.args.get("razorpay_payment_link_id")
+    plink_status = request.args.get("razorpay_payment_link_status")
+    
+    if plink_id and plink_status == "paid":
+        try:
+            # Find the payment record associated with this link
+            pay_resp = supabase.table("payments").select("*").eq("razorpay_order_id", plink_id).execute()
+            if pay_resp.data and pay_resp.data[0]["payment_status"] != "paid":
+                job_id = pay_resp.data[0]["job_id"]
+                # Mark as paid
+                supabase.table("payments").update({"payment_status": "paid"}).eq("razorpay_order_id", plink_id).execute()
+                # Mark job as completed
+                supabase.table("jobs").update({"status": "completed"}).eq("id", job_id).execute()
+                
+                # Payout credit to worker
+                worker_earnings = pay_resp.data[0]["worker_earnings"]
+                job_info = supabase.table("jobs").select("worker_id").eq("id", job_id).execute()
+                worker_id = job_info.data[0]["worker_id"]
+                w_profile = supabase.table("profiles").select("earnings").eq("id", worker_id).execute()
+                current_e = w_profile.data[0].get("earnings") or 0
+                supabase.table("profiles").update({"earnings": current_e + worker_earnings}).eq("id", worker_id).execute()
+        except:
+            pass
+    
     if not supabase:
         return "Database connection failed", 500
         
@@ -242,11 +305,21 @@ def user_dashboard():
     jobs_response = supabase.table("jobs").select("*").eq("user_id", session.get("user_id")).order("created_at", desc=True).execute()
     past_jobs = jobs_response.data
     
+    # Check if user is locked (any pending payments)
+    is_locked = is_user_locked(session.get("user_id"))
+    
+    # Fetch extra works for active/pending jobs
+    extra_works = []
+    job_ids = [j["id"] for j in past_jobs]
+    if job_ids:
+        ew_resp = supabase.table("extra_work").select("*").in_("job_id", job_ids).execute()
+        extra_works = ew_resp.data
+    
     # Map worker names locally to avoid complex join syntax
     worker_lookup = {w["id"]: w["name"] for w in workers}
     
     # Split into active and history
-    active_jobs = [j for j in past_jobs if j["status"] in ["pending", "quoted", "accepted", "in_progress"]]
+    active_jobs = [j for j in past_jobs if j["status"] in ["pending", "quoted", "accepted", "in_progress", "payment_pending", "negotiating"]]
     history_jobs = [j for j in past_jobs if j["status"] in ["completed", "declined"]]
     
     # Check which history jobs are already rated
@@ -276,7 +349,12 @@ def user_dashboard():
     for w in workers:
         w["review_count"] = review_counts.get(w["id"], 0)
         
-    return render_template("user_dashboard.html", workers=workers, active_jobs=active_jobs, history_jobs=history_jobs)
+    return render_template("user_dashboard.html", 
+        workers=workers, 
+        active_jobs=active_jobs, 
+        history_jobs=history_jobs,
+        extra_works=extra_works,
+        is_locked=is_locked)
 
 @app.route("/dashboard/worker")
 def worker_dashboard():
@@ -305,11 +383,18 @@ def worker_dashboard():
         user_lookup = {}
         phone_lookup = {}
         
+    # Fetch extra works for worker's jobs
+    extra_works = []
+    job_ids = [j["id"] for j in all_jobs]
+    if job_ids:
+        ew_resp = supabase.table("extra_work").select("*").in_("job_id", job_ids).execute()
+        extra_works = ew_resp.data
+        
     for j in all_jobs:
         j["user_name"] = user_lookup.get(j["user_id"], "Unknown Customer")
         j["user_phone"] = phone_lookup.get(j["user_id"], "Not Provided")
         
-    recent_requests = [j for j in all_jobs if j["status"] in ["pending", "quoted", "accepted", "in_progress"]]
+    recent_requests = [j for j in all_jobs if j["status"] in ["pending", "quoted", "accepted", "in_progress", "payment_pending", "negotiating"]]
     history_jobs = [j for j in all_jobs if j["status"] in ["completed", "declined"]]
     active_jobs_count = len([j for j in recent_requests if j["status"] == "in_progress"])
     
@@ -347,7 +432,15 @@ def worker_dashboard():
     else:
         earnings_growth = 0.0
     
-    return render_template("worker_dashboard.html", worker=worker, total_reviews=total_reviews, recent_requests=recent_requests, history_jobs=history_jobs, active_jobs_count=active_jobs_count, earnings_growth=earnings_growth, lifetime_earnings=lifetime_earnings)
+    return render_template("worker_dashboard.html", 
+        worker=worker, 
+        total_reviews=total_reviews, 
+        recent_requests=recent_requests, 
+        history_jobs=history_jobs, 
+        active_jobs_count=active_jobs_count, 
+        earnings_growth=earnings_growth, 
+        lifetime_earnings=lifetime_earnings,
+        extra_works=extra_works)
 
 @app.route("/api/reviews", methods=["POST"])
 def submit_review():
@@ -394,6 +487,37 @@ def submit_review():
             
     return jsonify({"success": True})
 
+@app.route("/api/report_worker", methods=["POST"])
+def report_worker():
+    if session.get("role") != "user":
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+    
+    if not supabase:
+        return jsonify({"success": False, "error": "Database error"}), 500
+        
+    data = request.json
+    worker_id = data.get("worker_id")
+    job_id = data.get("job_id")
+    reason = data.get("reason")
+    description = data.get("description", "")
+    
+    if not all([worker_id, job_id, reason]):
+        return jsonify({"success": False, "error": "Missing required fields"}), 400
+        
+    new_report = {
+        "user_id": session.get("user_id"),
+        "worker_id": worker_id,
+        "job_id": job_id,
+        "reason": reason,
+        "description": description
+    }
+    
+    try:
+        supabase.table("reports").insert(new_report).execute()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route("/api/worker/toggle_status", methods=["POST"])
 def toggle_status():
     if session.get("role") != "worker":
@@ -416,6 +540,10 @@ def toggle_status():
 def book_worker():
     if session.get("role") != "user":
         return jsonify({"success": False, "error": "Unauthorized"}), 403
+        
+    # Check if user is locked
+    if is_user_locked(session.get("user_id")):
+        return jsonify({"success": False, "error": "Your account is locked. Please complete your pending payment to unlock features."}), 403
         
     if not supabase:
         return jsonify({"success": False, "error": "Database error"}), 500
@@ -532,17 +660,31 @@ def update_job_status():
         job_resp = supabase.table("jobs").select("*").eq("id", job_id).execute()
         if not job_resp.data:
             return jsonify({"success": False, "error": "Job not found"}), 404
-        
+            
         job = job_resp.data[0]
+        
+        # Enforce App Lock for users
+        if role == "user" and is_user_locked(user_id):
+            return jsonify({"success": False, "error": "Account Locked. Payment Required."}), 403
         if role == "worker" and job["worker_id"] != user_id:
             return jsonify({"success": False, "error": "Unauthorized"}), 403
         if role == "user" and job["user_id"] != user_id:
             return jsonify({"success": False, "error": "Unauthorized"}), 403
             
-        if role == "user" and new_status not in ["accepted", "declined"]:
+        if role == "user" and new_status not in ["accepted", "declined", "negotiating"]:
              return jsonify({"success": False, "error": "Invalid user action"}), 400
              
         update_data = {"status": new_status}
+
+        # Handle Negotiation Actions
+        if new_status == "negotiating":
+            update_data["bargain_price"] = data.get("price")
+            update_data["bargain_by"] = role
+        
+        # User accepting counter-offer from worker
+        if role == "user" and new_status == "accepted" and job["status"] == "negotiating":
+             # This means user accepted a counter-offer, we update official price first
+             update_data["quoted_price"] = job["bargain_price"]
 
         # User accepting quote -> Generate OTPs
         if role == "user" and new_status == "accepted":
@@ -555,14 +697,12 @@ def update_job_status():
             if new_status == "in_progress":
                 if job.get("start_otp") and provided_otp != job.get("start_otp"):
                     return jsonify({"success": False, "error": "Wrong OTP. Please check with customer."}), 400
-            elif new_status == "completed" and job["status"] == "in_progress":
+            elif new_status == "payment_pending" and job["status"] == "in_progress":
                 if job.get("end_otp") and provided_otp != job.get("end_otp"):
                     return jsonify({"success": False, "error": "Wrong OTP. Please check with customer."}), 400
                 
-                quoted_price = job.get("quoted_price") or 0
-                worker_resp = supabase.table("profiles").select("earnings").eq("id", user_id).execute()
-                current_earnings = worker_resp.data[0].get("earnings") or 0
-                supabase.table("profiles").update({"earnings": current_earnings + quoted_price}).eq("id", user_id).execute()
+                # We move to payment_pending. Earnings are updated ONLY after Razorpay verification.
+                update_data["status"] = "payment_pending"
             
         supabase.table("jobs").update(update_data).eq("id", job_id).execute()
         return jsonify({"success": True})
@@ -617,7 +757,13 @@ def view_profile(profile_id):
                 worker_map = {w["id"]: w["name"] for w in workers_resp.data}
                 for j in user_jobs:
                     j["worker_name"] = worker_map.get(j["worker_id"], "Unknown Worker")
-    return render_template("profile.html", profile=profile, reviews=reviews_data, user_jobs=user_jobs, is_owner=is_owner)
+    
+    # App Lock Check
+    is_locked = False
+    if session.get("user_id"):
+        is_locked = is_user_locked(session.get("user_id"))
+    
+    return render_template("profile.html", profile=profile, reviews=reviews_data, user_jobs=user_jobs, is_owner=is_owner, is_locked=is_locked)
 
 @app.route("/api/profile/update", methods=["POST"])
 def update_profile():
@@ -692,6 +838,10 @@ def get_public_key(target_user_id):
 def send_message():
     if "user_id" not in session:
         return jsonify({"success": False, "error": "Unauthorized"}), 403
+        
+    # Check if user is locked
+    if is_user_locked(session.get("user_id")):
+        return jsonify({"success": False, "error": "Your account is locked. Payment required to send messages."}), 403
     if not supabase:
         return jsonify({"success": False, "error": "Database error"}), 500
         
@@ -718,10 +868,172 @@ def send_message():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route("/api/extra_work/add", methods=["POST"])
+def add_extra_work():
+    if session.get("role") != "worker":
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+    
+    data = request.json
+    job_id = data.get("job_id")
+    description = data.get("description")
+    amount = data.get("amount")
+    
+    if not all([job_id, description, amount]):
+        return jsonify({"success": False, "error": "Missing fields"}), 400
+        
+    try:
+        new_extra = {
+            "job_id": job_id,
+            "description": description,
+            "amount": float(amount),
+            "status": "pending"
+        }
+        supabase.table("extra_work").insert(new_extra).execute()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/extra_work/status", methods=["POST"])
+def update_extra_work_status():
+    if session.get("role") != "user":
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+        
+    data = request.json
+    extra_id = data.get("extra_id")
+    new_status = data.get("status") # approved or rejected
+    
+    if new_status not in ["approved", "rejected"]:
+        return jsonify({"success": False, "error": "Invalid status"}), 400
+        
+    try:
+        supabase.table("extra_work").update({"status": new_status}).eq("id", extra_id).execute()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/payment/init-mock", methods=["POST"])
+def init_mock_payment():
+    if session.get("role") != "user":
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+        
+    data = request.json
+    job_id = data.get("job_id")
+    
+    try:
+        # Calculate total
+        job_resp = supabase.table("jobs").select("quoted_price").eq("id", job_id).execute()
+        job = job_resp.data[0]
+        base_amount = float(job.get("quoted_price") or 0)
+        
+        extras_resp = supabase.table("extra_work").select("amount").eq("job_id", job_id).eq("status", "approved").execute()
+        extras_total = sum([float(e["amount"]) for e in extras_resp.data])
+        
+        total_amount = base_amount + extras_total
+        commission = total_amount * 0.15
+        worker_earnings = total_amount - commission
+        
+        pay_record = {
+            "job_id": job_id,
+            "total_amount": total_amount,
+            "commission": commission,
+            "worker_earnings": worker_earnings,
+            "razorpay_order_id": f"mock_{int(time.time())}",
+            "payment_status": "pending"
+        }
+        res = supabase.table("payments").insert(pay_record).execute()
+        
+        return jsonify({
+            "success": True, 
+            "total_amount": total_amount,
+            "payment_id": res.data[0]["id"]
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/payment/simulate-success", methods=["POST"])
+def simulate_payment():
+    # Simulation is now the default flow
+    data = request.json
+    job_id = data.get("job_id")
+    method = data.get("method", "UPI")
+    
+    try:
+        pay_resp = supabase.table("payments").select("*").eq("job_id", job_id).eq("payment_status", "pending").execute()
+        if not pay_resp.data:
+            return jsonify({"success": False, "error": "No pending payment found"}), 404
+            
+        payment = pay_resp.data[0]
+        supabase.table("payments").update({
+            "payment_status": "paid", 
+            "razorpay_payment_id": f"mock_paid_{int(time.time())}"
+        }).eq("id", payment["id"]).execute()
+        
+        supabase.table("jobs").update({"status": "completed"}).eq("id", job_id).execute()
+        
+        # Credit Worker
+        job_info = supabase.table("jobs").select("worker_id").eq("id", job_id).execute().data[0]
+        worker_id = job_info["worker_id"]
+        w_profile = supabase.table("profiles").select("earnings").eq("id", worker_id).execute().data[0]
+        new_earnings = (w_profile.get("earnings") or 0) + payment["worker_earnings"]
+        supabase.table("profiles").update({"earnings": new_earnings}).eq("id", worker_id).execute()
+        
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/payment/verify", methods=["POST"])
+def verify_payment():
+    if session.get("role") != "user":
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+        
+    data = request.json
+    try:
+        # Verify signature
+        razor_client.utility.verify_payment_signature({
+            'razorpay_order_id': data.get('razorpay_order_id'),
+            'razorpay_payment_id': data.get('razorpay_payment_id'),
+            'razorpay_signature': data.get('razorpay_signature')
+        })
+        
+        order_id = data.get('razorpay_order_id')
+        
+        # Update payment record
+        pay_update = {
+            "razorpay_payment_id": data.get('razorpay_payment_id'),
+            "razorpay_signature": data.get('razorpay_signature'),
+            "payment_status": "paid"
+        }
+        pay_resp = supabase.table("payments").update(pay_update).eq("razorpay_order_id", order_id).execute()
+        
+        if pay_resp.data:
+            job_id = pay_resp.data[0]["job_id"]
+            # Update job status
+            supabase.table("jobs").update({"status": "completed"}).eq("id", job_id).execute()
+            
+            # Update worker earnings in profile
+            worker_earnings = pay_resp.data[0]["worker_earnings"]
+            job_info = supabase.table("jobs").select("worker_id").eq("id", job_id).execute()
+            worker_id = job_info.data[0]["worker_id"]
+            
+            worker_profile = supabase.table("profiles").select("earnings").eq("id", worker_id).execute()
+            current_earnings = worker_profile.data[0].get("earnings") or 0
+            supabase.table("profiles").update({"earnings": current_earnings + worker_earnings}).eq("id", worker_id).execute()
+            
+            return jsonify({"success": True})
+        
+        return jsonify({"success": False, "error": "Payment record not found"}), 404
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
 @app.route("/api/chat/<int:job_id>", methods=["GET"])
 def get_messages(job_id):
     if "user_id" not in session:
-        return jsonify({"success": False, "error": "Unauthorized"}), 403
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    
+    # App Lock Check
+    if is_user_locked(session.get("user_id")):
+        return jsonify({"success": False, "error": "App feature locked. Payment pending."}), 403
     if not supabase:
         return jsonify({"success": False, "error": "Database error"}), 500
         
@@ -733,5 +1045,30 @@ def get_messages(job_id):
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-if __name__ == "__main__":
+@app.route("/api/job/negotiate/accept", methods=["POST"])
+def accept_negotiation():
+    if not session.get("user_id"):
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+        
+    data = request.json
+    job_id = data.get("job_id")
+    
+    try:
+        job_resp = supabase.table("jobs").select("*").eq("id", job_id).execute()
+        job = job_resp.data[0]
+        
+        # Finalize the price
+        new_price = job["bargain_price"]
+        update_data = {
+            "quoted_price": new_price,
+            "status": "quoted", # Move back to quoted so user can accept officially
+            "bargain_price": None,
+            "bargain_by": None
+        }
+        supabase.table("jobs").update(update_data).eq("id", job_id).execute()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+if __name__ == '__main__':
     app.run(debug=True, port=5000)

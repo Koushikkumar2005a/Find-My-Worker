@@ -17,6 +17,21 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
 <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
 
+<style>
+    .negotiation-badge {
+        background: rgba(255, 136, 0, 0.2);
+        color: #ff8800;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: bold;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        border: 1px solid rgba(255, 136, 0, 0.3);
+    }
+</style>
+
 <div class="dashboard-container">
     <div class="dashboard-header">
         <div>
@@ -85,24 +100,70 @@
                                 style="flex: 2;">Details & Map</button>
                         <button class="btn btn-outline status-btn" data-job-id="{{ job.id }}" data-status="declined" style="flex: 1;">Decline</button>
                     {% elif job.status == 'quoted' %}
-                        <span style="color: var(--primary-yellow); width: 100%; text-align: center; padding: 0.75rem;">Waiting for Customer... (₹{{ job.quoted_price }})</span>
-                    {% elif job.status == 'accepted' or job.status == 'in_progress' %}
-                        <div style="display: flex; gap: 0.5rem; width: 100%;">
-                            <button class="btn btn-primary status-btn" data-job-id="{{ job.id }}" data-status="{{ 'in_progress' if job.status == 'accepted' else 'completed' }}" style="flex: 1;">
-                                {{ 'Start Job' if job.status == 'accepted' else 'Complete Job' }}
-                            </button>
-                            <button class="btn btn-outline open-route-btn" 
-                                    data-job-id="{{ job.id }}"
-                                    data-lat="{{ job.customer_lat }}"
-                                    data-lng="{{ job.customer_lng }}"
-                                    data-user-name="{{ job.user_name }}"
-                                    style="flex: 1;">View Route</button>
+                        <div style="background: rgba(0,0,0,0.1); padding: 0.75rem; border-radius: 8px; width: 100%; text-align: center;">
+                            <p style="color: var(--primary-yellow); margin: 0;">Waiting for Customer...</p>
+                            <p style="font-size: 0.8rem; color: var(--gray); margin-top: 5px;">Price: ₹{{ job.quoted_price }}</p>
                         </div>
-                        <button class="btn btn-outline btn-sm open-chat-btn" 
-                                data-job-id="{{ job.id }}" 
-                                data-participant-id="{{ job.user_id }}" 
-                                data-participant-name="{{ job.user_name }}" 
-                                style="margin-top: 0.5rem; width: 100%;">Chat with {{ job.user_name }}</button>
+                    {% elif job.status == 'negotiating' %}
+                        <div style="background: rgba(0,0,0,0.1); padding: 1rem; border-radius: 12px; margin-top: 1rem; width: 100%;">
+                            <div class="negotiation-badge">
+                                <span>🤝</span> Negotiation Active
+                            </div>
+                            <div style="margin-top: 1rem; text-align: center;">
+                                {% if job.bargain_by == 'worker' %}
+                                    <p style="color: var(--gray);">Sent your counter for <span style="color: white; font-weight: bold;">₹{{ job.bargain_price }}</span></p>
+                                    <p style="font-size: 0.8rem; color: var(--gray);">Waiting for customer response...</p>
+                                {% else %}
+                                    <p style="color: white;">Customer offered <span style="color: var(--primary-yellow); font-weight: bold; font-size: 1.2rem;">₹{{ job.bargain_price }}</span></p>
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                                        <button class="btn btn-primary btn-sm accept-negotiation-btn" data-job-id="{{ job.id }}" style="flex:1;">Accept Offer</button>
+                                        <button class="btn btn-outline btn-sm bargain-btn" 
+                                                data-job-id="{{ job.id }}" 
+                                                data-current-price="{{ job.bargain_price }}"
+                                                style="flex:1; border-color: #ff8800; color: #ff8800;">Counter</button>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% elif job.status == 'accepted' or job.status == 'in_progress' %}
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-primary status-btn" data-job-id="{{ job.id }}" data-status="{{ 'in_progress' if job.status == 'accepted' else 'payment_pending' }}" style="flex: 1;">
+                                    {{ 'Start Job' if job.status == 'accepted' else 'Mark as Done (OTP Required)' }}
+                                </button>
+                                <button class="btn btn-outline open-route-btn" 
+                                        data-job-id="{{ job.id }}"
+                                        data-lat="{{ job.customer_lat }}"
+                                        data-lng="{{ job.customer_lng }}"
+                                        data-user-name="{{ job.user_name }}"
+                                        style="flex: 1;">View Route</button>
+                            </div>
+                            
+                            <!-- Extra Work Section -->
+                            <div style="background: rgba(0,0,0,0.1); padding: 0.75rem; border-radius: 8px; margin-top: 0.5rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                    <span style="font-size: 0.85rem; font-weight: bold; color: var(--primary-yellow);">Extra Work</span>
+                                    <button class="btn btn-outline btn-sm open-extra-work-btn" data-job-id="{{ job.id }}" style="padding: 2px 8px; font-size: 0.7rem;">+ Add Extra</button>
+                                </div>
+                                {% set ns = namespace(found=false) %}
+                                {% for ew in extra_works if ew.job_id == job.id %}
+                                    {% set ns.found = true %}
+                                    <div style="font-size: 0.8rem; display: flex; justify-content: space-between; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <span>{{ ew.description }}</span>
+                                        <span style="color: {% if ew.status == 'approved' %}#00C851{% elif ew.status == 'rejected' %}#ff4444{% else %}var(--primary-yellow){% endif %};">₹{{ ew.amount }} ({{ ew.status }})</span>
+                                    </div>
+                                {% endfor %}
+                                {% if not ns.found %}
+                                    <p style="font-size: 0.75rem; color: var(--gray);">No extra work added.</p>
+                                {% endif %}
+                            </div>
+
+                            <button class="btn btn-outline btn-sm open-chat-btn" 
+                                    data-job-id="{{ job.id }}" 
+                                    data-participant-id="{{ job.user_id }}" 
+                                    data-participant-name="{{ job.user_name }}" 
+                                    style="margin-top: 0.25rem; width: 100%;">Chat with {{ job.user_name }}</button>
+                        </div>
                     {% endif %}
                 </div>
             </div>
@@ -234,7 +295,7 @@
             const status = statusBtn.getAttribute('data-status');
             
             // Require OTP for starting and completing
-            if (status === 'in_progress' || status === 'completed') {
+            if (status === 'in_progress' || status === 'completed' || status === 'payment_pending') {
                 pendingOtpAction = { jobId, status, btnElement: statusBtn };
                 document.getElementById('otp-modal-title').innerText = status === 'in_progress' ? "Start Task Verification" : "Complete Task Verification";
                 document.getElementById('otp-input').value = "";
@@ -297,67 +358,112 @@
             openRoute(routeBtn.dataset.lat, routeBtn.dataset.lng, routeBtn.dataset.userName);
             return;
         }
-    });
 
-    // OTP Modal Logic
-    document.getElementById('cancel-otp-btn').addEventListener('click', () => {
-        document.getElementById('otp-modal').classList.remove('active');
-        pendingOtpAction = null;
-    });
-
-    document.getElementById('submit-otp-btn').addEventListener('click', async (e) => {
-        if (!pendingOtpAction) return;
-        const otpValue = document.getElementById('otp-input').value.trim();
-        if (!otpValue || otpValue.length !== 6) {
-            alert("Please enter a valid 6-digit OTP.");
+        // Open Extra Work Modal
+        const ewBtn = e.target.closest('.open-extra-work-btn');
+        if (ewBtn) {
+            currentQuoteJobId = ewBtn.getAttribute('data-job-id');
+            document.getElementById('extra-work-modal').classList.add('active');
             return;
         }
-        
-        const btn = e.target;
-        btn.innerText = "Verifying...";
-        
-        try {
-            const response = await fetch('/api/job/status', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({job_id: pendingOtpAction.jobId, status: pendingOtpAction.status, otp: otpValue})
-            });
-            const data = await response.json();
-            if(data.success) {
-                document.getElementById('otp-modal').classList.remove('active');
-                syncDashboard();
-                if(window.showToast) window.showToast("OTP Verified successfully!");
-            } else { 
-                alert("Verification Failed: " + data.error); 
-            }
-        } catch(err) { 
-            alert("Network error during verification."); 
+
+        // Send Quote Button (in details modal)
+        const sendQuoteBtn = e.target.closest('#send-quote-btn');
+        if (sendQuoteBtn) {
+            const price = document.getElementById('quote-price').value;
+            if(!price || isNaN(price)) { alert("Please enter a valid amount."); return; }
+            sendQuoteBtn.innerText = "Sending...";
+            try {
+                const res = await fetch('/api/job/quote', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({job_id: currentQuoteJobId, price: price})
+                });
+                const data = await res.json();
+                if(data.success) {
+                    document.getElementById('details-modal').classList.remove('active');
+                    syncDashboard();
+                    sendQuoteBtn.innerText = "Send Quote";
+                } else { alert("Error: " + data.error); sendQuoteBtn.innerText = "Send Quote"; }
+            } catch(err) { alert("Network Error"); sendQuoteBtn.innerText = "Send Quote"; }
+            return;
         }
-        
-        btn.innerText = "Verify & Proceed";
-    });
 
-    document.getElementById('close-details-btn').addEventListener('click', () => {
-        document.getElementById('details-modal').classList.remove('active');
-    });
+        // Close Details Modal
+        if (e.target.closest('#close-details-btn')) {
+            document.getElementById('details-modal').classList.remove('active');
+            return;
+        }
 
-    document.getElementById('send-quote-btn').addEventListener('click', async (e) => {
-        const price = document.getElementById('quote-price').value;
-        if(!price || isNaN(price)) { alert("Please enter a valid amount."); return; }
-        e.target.innerText = "Sending...";
-        try {
-            const res = await fetch('/api/job/quote', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({job_id: currentQuoteJobId, price: price})
-            });
-            const data = await res.json();
-            if(data.success) {
-                document.getElementById('details-modal').classList.remove('active');
-                syncDashboard();
-                e.target.innerText = "Send Quote";
-            } else { alert("Error: " + data.error); e.target.innerText = "Send Quote"; }
-        } catch(err) { alert("Network Error"); e.target.innerText = "Send Quote"; }
+        // Submit Extra Work Request
+        const submitEwBtn = e.target.closest('#submit-ew-btn');
+        if (submitEwBtn) {
+            const desc = document.getElementById('ew-desc').value;
+            const amount = document.getElementById('ew-amount').value;
+            if (!desc || !amount) { alert("Please enter both description and amount."); return; }
+            
+            submitEwBtn.innerText = "Submitting...";
+            try {
+                const res = await fetch('/api/extra_work/add', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        job_id: currentQuoteJobId,
+                        description: desc,
+                        amount: amount
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('extra-work-modal').classList.remove('active');
+                    document.getElementById('ew-desc').value = "";
+                    document.getElementById('ew-amount').value = "";
+                    syncDashboard();
+                } else { alert("Error: " + data.error); }
+            } catch (err) { alert("Network Error"); }
+            submitEwBtn.innerText = "Request Approval";
+            return;
+        }
+
+        // Close Extra Work Modal
+        if (e.target.closest('#close-ew-btn')) {
+            document.getElementById('extra-work-modal').classList.remove('active');
+            return;
+        }
+
+        // Submit OTP Verification
+        const submitOtpBtn = e.target.closest('#submit-otp-btn');
+        if (submitOtpBtn) {
+            if (!pendingOtpAction) return;
+            const otpValue = document.getElementById('otp-input').value.trim();
+            if (!otpValue || otpValue.length !== 6) {
+                alert("Please enter a valid 6-digit OTP.");
+                return;
+            }
+            submitOtpBtn.innerText = "Verifying...";
+            try {
+                const response = await fetch('/api/job/status', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({job_id: pendingOtpAction.jobId, status: pendingOtpAction.status, otp: otpValue})
+                });
+                const data = await response.json();
+                if(data.success) {
+                    document.getElementById('otp-modal').classList.remove('active');
+                    syncDashboard();
+                    if(window.showToast) window.showToast("OTP Verified successfully!");
+                } else { alert("Verification Failed: " + data.error); }
+            } catch(err) { alert("Network error during verification."); }
+            submitOtpBtn.innerText = "Verify & Proceed";
+            return;
+        }
+
+        // Cancel OTP Modal
+        if (e.target.closest('#cancel-otp-btn')) {
+            document.getElementById('otp-modal').classList.remove('active');
+            pendingOtpAction = null;
+            return;
+        }
     });
     // Route Viewing Logic
     let routeMap, routeControl;
@@ -481,6 +587,119 @@
             .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs', filter: `worker_id=eq.${CURRENT_USER_ID}` }, payload => {
                 syncDashboard(); 
             }).subscribe();
+    }
+</script>
+
+<!-- Extra Work Modal -->
+<div id="extra-work-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 400px;">
+        <h3>Add Extra Work</h3>
+        <p style="color: var(--gray); font-size: 0.9rem; margin-bottom: 1.5rem;">Request approval for additional work items.</p>
+        
+        <div class="form-group">
+            <label class="form-label">Description of Extra Work</label>
+            <input type="text" id="ew-desc" class="form-control" placeholder="e.g., Replacement of switch" />
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">Amount (₹)</label>
+            <input type="number" id="ew-amount" class="form-control" placeholder="0.00" />
+        </div>
+        
+        <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+            <button class="btn btn-primary" id="submit-ew-btn" style="flex: 1;">Request Approval</button>
+            <button class="btn btn-outline" id="close-ew-btn" style="flex: 1;">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bargain Modal -->
+<div id="bargain-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+        <h3 style="color: #ff8800;">🤝 Bargain Price</h3>
+        <p style="color: var(--gray); font-size: 0.9rem; margin-bottom: 1.5rem;">Enter your numeric offer to the customer. No text allowed.</p>
+        
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+            <label class="form-label" style="display: block; text-align: left;">Counter Amount (₹)</label>
+            <input type="number" id="bargain-input" class="form-control" placeholder="e.g. 500" style="font-size: 1.5rem; text-align: center; color: var(--primary-yellow);">
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <button class="btn btn-primary" id="submit-bargain-btn" style="flex: 2; background: #ff8800; border-color: #ff8800;">Send Offer</button>
+            <button class="btn btn-outline" onclick="document.getElementById('bargain-modal').style.display='none'" style="flex: 1;">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let activeBargainId = null;
+
+    document.addEventListener('click', e => {
+        const btn = e.target.closest('.bargain-btn');
+        if (btn) {
+            activeBargainId = btn.getAttribute('data-job-id');
+            const currentPrice = btn.getAttribute('data-current-price');
+            document.getElementById('bargain-input').value = currentPrice;
+            document.getElementById('bargain-modal').style.display = 'flex';
+        }
+
+        const acceptNegBtn = e.target.closest('.accept-negotiation-btn');
+        if (acceptNegBtn) {
+            const jobId = acceptNegBtn.getAttribute('data-job-id');
+            acceptNegotiation(jobId);
+        }
+    });
+
+    document.getElementById('submit-bargain-btn')?.addEventListener('click', async () => {
+        const price = document.getElementById('bargain-input').value;
+        if (!price || isNaN(price)) {
+            alert("Please enter a valid numeric amount.");
+            return;
+        }
+
+        const btn = document.getElementById('submit-bargain-btn');
+        btn.innerText = "Sending Offer...";
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/job/status', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    job_id: activeBargainId,
+                    status: 'negotiating',
+                    price: parseFloat(price)
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert("Counter-offer sent!");
+                window.location.reload();
+            } else {
+                alert("Negotiation failed: " + data.error);
+                btn.innerText = "Send Offer";
+                btn.disabled = false;
+            }
+        } catch (err) {
+            alert("Network error.");
+            btn.innerText = "Send Offer";
+            btn.disabled = false;
+        }
+    });
+
+    async function acceptNegotiation(jobId) {
+        try {
+            const res = await fetch('/api/job/negotiate/accept', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({job_id: jobId})
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert("Price Agreed! Quote has been updated.");
+                window.location.reload();
+            }
+        } catch (err) { alert("Error accepting offer."); }
     }
 </script>
 

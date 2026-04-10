@@ -57,13 +57,27 @@
                         <span>📧</span> Contact Details
                     </h3>
                     <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-                        <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px;">
+                        <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; position: relative; overflow: hidden;">
                             <span style="display: block; font-size: 0.75rem; color: var(--gray); text-transform: uppercase; margin-bottom: 4px;">Email</span>
-                            <span style="font-weight: 500; font-size: 1.1rem;">{{ profile.email }}</span>
+                            {% if is_locked %}
+                                <span style="filter: blur(6px); pointer-events: none; user-select: none;">{{ profile.email }}</span>
+                                <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background: rgba(0,0,0,0.4);">
+                                    <span style="color: var(--primary-yellow); font-size: 0.75rem; font-weight: bold;">PAY TO VIEW</span>
+                                </div>
+                            {% else %}
+                                <span style="font-weight: 500; font-size: 1.1rem;">{{ profile.email }}</span>
+                            {% endif %}
                         </div>
-                        <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px;">
+                        <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; position: relative; overflow: hidden;">
                             <span style="display: block; font-size: 0.75rem; color: var(--gray); text-transform: uppercase; margin-bottom: 4px;">Phone</span>
-                            <span id="display-phone" style="font-weight: 500; font-size: 1.1rem;">{{ profile.phone_number if profile.phone_number else 'Not provided' }}</span>
+                            {% if is_locked %}
+                                <span style="filter: blur(6px); pointer-events: none; user-select: none;">{{ profile.phone_number if profile.phone_number else 'Not provided' }}</span>
+                                <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background: rgba(0,0,0,0.4);">
+                                    <span style="color: var(--primary-yellow); font-size: 0.75rem; font-weight: bold;">PAY TO VIEW</span>
+                                </div>
+                            {% else %}
+                                <span id="display-phone" style="font-weight: 500; font-size: 1.1rem;">{{ profile.phone_number if profile.phone_number else 'Not provided' }}</span>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
